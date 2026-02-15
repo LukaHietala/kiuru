@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"unicode/utf8"
 
 	"golang.org/x/term"
 )
@@ -97,7 +98,7 @@ func (e *Editor) processKey(reader *bufio.Reader) {
 	if char == 'q' {
 		e.Quit = true
 	}
-	fmt.Println(char)
+	fmt.Printf("char: %c, len:%d\r\n", char, utf8.RuneLen(char))
 }
 
 func (e *Editor) updateWindowSize() {
