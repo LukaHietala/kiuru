@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"os"
 	"testing"
 )
@@ -48,6 +49,12 @@ func TestCurrentBuffer(t *testing.T) {
 func TestOpenFile(t *testing.T) {
 	e := &Editor{Buffers: []*Buffer{}}
 
+	// Test (hopefully) non-existent file
+	e.openFile(rand.Text())
+	if len(e.curBuf().Rows) != 1 {
+		t.Errorf("Expected 1 row on non-existent file, got %d", len(e.curBuf().Rows))
+	}
+
 	// Create file to test on
 	f, err := os.CreateTemp("", "kiuru-test")
 	if err != nil {
@@ -83,11 +90,11 @@ func TestOpenFile(t *testing.T) {
 	}
 
 	// Test that the buf index and count is correct
-	if e.BufIndex != 1 {
-		t.Errorf("Expected BufIndex 1, got %d", e.BufIndex)
+	if e.BufIndex != 2 {
+		t.Errorf("Expected BufIndex 2, got %d", e.BufIndex)
 	}
-	if len(e.Buffers) != 2 {
-		t.Errorf("Expected 2 buffers, got %d", len(e.Buffers))
+	if len(e.Buffers) != 3 {
+		t.Errorf("Expected 3 buffers, got %d", len(e.Buffers))
 	}
 
 }
