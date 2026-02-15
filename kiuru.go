@@ -48,7 +48,15 @@ func main() {
 		Mode:    ModeNormal,
 		Buffers: []*Buffer{},
 	}
-	e.addBuffer(true, false)
+
+	if len(os.Args) > 1 {
+		for _, arg := range os.Args[1:] {
+			e.openFile(arg)
+		}
+		e.BufIndex = 0
+	} else {
+		e.addBuffer(true, false)
+	}
 
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
@@ -58,6 +66,7 @@ func main() {
 	e.updateWindowSize()
 
 	reader := bufio.NewReader(os.Stdin)
+
 	for !e.Quit {
 		e.processKey(reader)
 	}
@@ -71,6 +80,35 @@ func (e *Editor) curBuf() *Buffer {
 		return nil
 	}
 	return e.Buffers[e.BufIndex]
+}
+
+func (e *Editor) openFile(filename string) {
+	rows := [][]rune{}
+
+	file, err := os.Open(filename)
+	if err != nil {
+		// Likely not found, but still create empty buf
+		rows = append(rows, []rune{})
+	} else {
+		defer file.Close()
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := scanner.Text()
+			rows = append(rows, []rune(line))
+		}
+		if len(rows) == 0 {
+			rows = append(rows, []rune{})
+		}
+	}
+	buf := &Buffer{
+		Rows:    rows,
+		Name:    filename,
+		Scratch: false,
+		Listed:  true,
+		Dirty:   false,
+	}
+	e.Buffers = append(e.Buffers, buf)
+	e.BufIndex = len(e.Buffers) - 1
 }
 
 func (e *Editor) addBuffer(listed bool, scratch bool) {
