@@ -15,5 +15,5 @@ const (
 )
 
 func MoveCursor(y, x int) string {
-    return "\x1b[" + strconv.Itoa(y) + ";" + strconv.Itoa(x) + "H"
+	return "\x1b[" + strconv.Itoa(y) + ";" + strconv.Itoa(x) + "H"
 }
