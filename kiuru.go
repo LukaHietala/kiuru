@@ -2,12 +2,35 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"flag"
 	"fmt"
 	"os"
-	"unicode/utf8"
+	"os/signal"
+	"runtime"
+	"sync"
+	"syscall"
+	"time"
 
+	"github.com/mattn/go-runewidth"
 	"golang.org/x/term"
 )
+
+const (
+	HideCursor   = "\x1b[?25l"
+	ShowCursor   = "\x1b[?25h"
+	ClearLine    = "\x1b[K"
+	CursorHome   = "\x1b[H"
+	AltBufferOn  = "\x1b[?1049h"
+	AltBufferOff = "\x1b[?1049l"
+	ReverseVideo = "\x1b[7m"
+	ResetFormat  = "\x1b[m"
+	ClearScreen  = "\x1b[2J"
+)
+
+func ansiMoveCursor(y, x int) string {
+	return fmt.Sprintf("\x1b[%d;%dH", y, x)
+}
 
 const (
 	ModeNormal = iota
@@ -19,38 +42,50 @@ const (
 )
 
 type Buffer struct {
-	Rows    [][]rune // The text buffer
-	Cx, Cy  int      // Cursor pos
-	RowOff  int      // Scroll offset row
-	ColOff  int      // Scroll offser col
-	Name    string   // Buffer name
-	Dirty   bool     // Has the buffer been changed?
-	Scratch bool     // Is this empty scrach buffer?
-	Listed  bool     // Is this buffer listed?
+	Rows      [][]rune // The text buffer
+	Cx, Cy    int      // Real Cursor pos
+	Vx, Vy    int      // Visual cursor position
+	DesiredCx int      // "Sticky" cursor col memory (for snapping)
+	RowOff    int      // Scroll offset row
+	ColOff    int      // Scroll offset col
+	Name      string   // Buffer name
+	Dirty     bool     // Has the buffer been changed?
+	Scratch   bool     // Is this empty scratch buffer?
+	Listed    bool     // Is this buffer listed?
 }
 
 type Editor struct {
-	ScreenRows int // Terminal width
-	ScreenCols int // Terminal height
+	mu sync.Mutex
 
-	Mode       int      // Current mode
-	CommandBuf string   // Command buffer
-	Messages   []string // List of all messages
-	MsgIndex   int      // Current message index
-	Quit       bool     // Quitted?
+	TermRows int // Terminal height
+	TermCols int // Terminal width
+
+	Mode       int    // Current mode
+	CommandBuf string // Command buffer
+	Message    string // Current message
+	Quit       bool   // Quitted?
 
 	Buffers  []*Buffer // List of buffers
 	BufIndex int       // Index of the active buffer
+
+	renderBuf bytes.Buffer
+
+	Debug bool
 }
 
 func main() {
+	debugPtr := flag.Bool("debug", false, "show runtime stats")
+	flag.Parse()
+
 	e := &Editor{
 		Mode:    ModeNormal,
 		Buffers: []*Buffer{},
+		Debug:   *debugPtr,
 	}
 
-	if len(os.Args) > 1 {
-		for _, arg := range os.Args[1:] {
+	args := flag.Args()
+	if len(args) > 0 {
+		for _, arg := range args {
 			e.openFile(arg)
 		}
 		e.BufIndex = 0
@@ -58,23 +93,59 @@ func main() {
 		e.addBuffer(true, false)
 	}
 
+	// Setup terminal
+	os.Stdout.WriteString(AltBufferOn + ClearScreen + CursorHome)
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
 		panic(err)
 	}
-	defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+	defer func() {
+		term.Restore(int(os.Stdin.Fd()), oldState)
+		os.Stdout.WriteString(AltBufferOff + ClearScreen + CursorHome)
+	}()
+
 	e.updateWindowSize()
+
+	// Listen for SIGWINCH to know when to resize terminal
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGWINCH)
+
+	go func() {
+		for range sigChan {
+			e.mu.Lock()
+			e.updateWindowSize()
+			e.render()
+			e.mu.Unlock()
+		}
+	}()
+
+	// TODO: Handle SIGHUP
+	// TODO: Recover from panic, save, then exit
 
 	reader := bufio.NewReader(os.Stdin)
 
-	for !e.Quit {
-		e.processKey(reader)
-	}
+	for {
+		e.mu.Lock()
+		if e.Quit {
+			e.mu.Unlock()
+			break
+		}
+		e.render()
+		e.mu.Unlock()
 
-	fmt.Print("\x1b[2J")
-	fmt.Print("\x1b[H")
+		char, _, err := reader.ReadRune()
+		if err != nil {
+			break
+		}
+
+		e.mu.Lock()
+		e.processKey(char)
+		e.mu.Unlock()
+	}
 }
 
+// Get current buffer
 func (e *Editor) curBuf() *Buffer {
 	if len(e.Buffers) == 0 {
 		return nil
@@ -82,12 +153,12 @@ func (e *Editor) curBuf() *Buffer {
 	return e.Buffers[e.BufIndex]
 }
 
-func (e *Editor) openFile(filename string) {
+// Opens file and create a buffer for it
+func (e *Editor) openFile(path string) {
 	rows := [][]rune{}
 
-	file, err := os.Open(filename)
+	file, err := os.Open(path)
 	if err != nil {
-		// Likely not found, but still create empty buf
 		rows = append(rows, []rune{})
 	} else {
 		defer file.Close()
@@ -101,16 +172,18 @@ func (e *Editor) openFile(filename string) {
 		}
 	}
 	buf := &Buffer{
-		Rows:    rows,
-		Name:    filename,
-		Scratch: false,
-		Listed:  true,
-		Dirty:   false,
+		Rows:      rows,
+		Name:      path,
+		Scratch:   false,
+		Listed:    true,
+		Dirty:     false,
+		DesiredCx: 0,
 	}
 	e.Buffers = append(e.Buffers, buf)
 	e.BufIndex = len(e.Buffers) - 1
 }
 
+// Creates an empty buffer
 func (e *Editor) addBuffer(listed bool, scratch bool) {
 	name := ""
 	if scratch {
@@ -119,30 +192,236 @@ func (e *Editor) addBuffer(listed bool, scratch bool) {
 		name = "No name"
 	}
 	buf := &Buffer{
-		Rows:    [][]rune{{}},
-		Name:    name,
-		Scratch: scratch,
-		Listed:  listed,
+		Rows:      [][]rune{{}},
+		Name:      name,
+		Scratch:   scratch,
+		Listed:    listed,
+		DesiredCx: 0,
 	}
 	e.Buffers = append(e.Buffers, buf)
 	e.BufIndex = len(e.Buffers) - 1
 }
 
-func (e *Editor) processKey(reader *bufio.Reader) {
-	char, _, err := reader.ReadRune()
-	if err != nil {
+// Handles all keypresses
+func (e *Editor) processKey(char rune) {
+	b := e.curBuf()
+	if b == nil {
 		return
 	}
-	if char == 'q' {
+	switch char {
+	case 'q':
 		e.Quit = true
+
+	// Basic vim movement (for render testing)
+	case 'h':
+		if b.Cx > 0 {
+			b.Cx--
+			b.DesiredCx = b.Cx
+		}
+	case 'j':
+		if b.Cy < len(b.Rows)-1 {
+			b.Cy++
+			e.clampCursor(b)
+		}
+	case 'k':
+		if b.Cy > 0 {
+			b.Cy--
+			e.clampCursor(b)
+		}
+	case 'l':
+		if b.Cy < len(b.Rows) && b.Cx < len(b.Rows[b.Cy]) {
+			b.Cx++
+			b.DesiredCx = b.Cx
+		}
 	}
-	fmt.Printf("char: %c, len:%d\r\n", char, utf8.RuneLen(char))
 }
 
+// Snaps the cursor to the end of shorter lines while remembering
+// the original column (DesiredCx) so it can restore it on longer lines
+func (e *Editor) clampCursor(b *Buffer) {
+	rowLen := 0
+	if b.Cy < len(b.Rows) {
+		rowLen = len(b.Rows[b.Cy])
+	}
+	b.Cx = min(b.DesiredCx, rowLen)
+}
+
+// "Scrolls" the view to right place for renderer
+func (e *Editor) scroll() {
+	b := e.curBuf()
+	if b == nil {
+		return
+	}
+
+	// Vertical scrolling
+	if b.Cy < b.RowOff {
+		b.RowOff = b.Cy
+	}
+	// TODO: Scrolloff
+	if b.Cy >= b.RowOff+e.TermRows {
+		b.RowOff = b.Cy - e.TermRows + 1
+	}
+
+	// Calculate vx based on tabss
+	b.Vx = 0
+	if b.Cy < len(b.Rows) {
+		row := b.Rows[b.Cy]
+		for i := 0; i < b.Cx && i < len(row); i++ {
+			char := row[i]
+			if char == '\t' {
+				b.Vx += (TabSize - 1) - (b.Vx % TabSize)
+				b.Vx++
+			} else {
+				b.Vx += runewidth.RuneWidth(char)
+			}
+		}
+	}
+
+	// Horizontal scrolling
+	if b.Vx < b.ColOff {
+		b.ColOff = b.Vx
+	}
+	if b.Vx >= b.ColOff+e.TermCols {
+		b.ColOff = b.Vx - e.TermCols + 1
+	}
+}
+
+// Draws the screen
+func (e *Editor) render() {
+	start := time.Now()
+	e.renderBuf.Reset()
+	e.renderBuf.WriteString(HideCursor + CursorHome)
+
+	b := e.curBuf()
+	e.scroll()
+
+	for y := range e.TermRows {
+		bufRow := y + b.RowOff
+		if bufRow >= len(b.Rows) {
+			e.renderBuf.WriteString("~")
+		} else {
+			line := b.Rows[bufRow]
+			// Visual char x pos
+			rx := 0
+
+			for _, c := range line {
+				w := runewidth.RuneWidth(c)
+				// Get real tab width
+				if c == '\t' {
+					w = TabSize - (rx % TabSize)
+				}
+
+				// If character starts past the right edge, stop
+				if rx-b.ColOff >= e.TermCols {
+					break
+				}
+
+				// If character ends past right edge, stop
+				if (rx-b.ColOff)+w > e.TermCols {
+					break
+				}
+
+				// If visible
+				if rx >= b.ColOff {
+					if c == '\t' {
+						// Render tabs
+						for i := 0; i < w; i++ {
+							e.renderBuf.WriteByte(' ')
+						}
+					} else {
+						e.renderBuf.WriteRune(c)
+						// If it's a wide char (width 2), RuneWidth returns 2,
+						// but WriteRune only writes the bytes. The terminal handles spacing.
+						// Now just rely on rx incrementing by width to track cursor correctly :katti:
+					}
+				}
+				rx += w
+			}
+		}
+
+		// Clear line to prevent ghosts
+		e.renderBuf.WriteString(ClearLine)
+		if y < e.TermRows-1 {
+			e.renderBuf.WriteString("\r\n")
+		}
+	}
+
+	// Start rendering status bar
+	e.renderBuf.WriteString(ansiMoveCursor(e.TermRows+1, 1))
+	e.renderBuf.WriteString(ReverseVideo)
+
+	// TODO!: clean up
+	// Left side, basic info
+	statusLeft := fmt.Sprintf(" %s - (%d,%d)", b.Name, b.Cy+1, b.Cx+1)
+
+	// Right side, debug
+	statusRight := ""
+	if e.Debug {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+
+		totalPause := time.Duration(m.PauseTotalNs)
+		statusRight = fmt.Sprintf("Render:%dµs Obj:%dk Pauses:%v Alloc:%vMB Sys:%vMB GC:%v",
+			time.Since(start).Microseconds(),
+			m.HeapObjects/1000,
+			totalPause,
+			m.Alloc/1024/1024,
+			m.Sys/1024/1024,
+			m.NumGC,
+		)
+	}
+
+	// Add padding between right and left sides
+	padding := e.TermCols - len(statusLeft)
+	if e.Debug {
+		padding -= len(statusRight)
+	}
+
+	if padding < 0 {
+		// Truncate left status if no room (less important)
+		if len(statusLeft) > e.TermCols {
+			statusLeft = statusLeft[:e.TermCols]
+		}
+		e.renderBuf.WriteString(statusLeft)
+	} else {
+		e.renderBuf.WriteString(statusLeft)
+		for i := 0; i < padding; i++ {
+			e.renderBuf.WriteByte(' ')
+		}
+		if e.Debug {
+			e.renderBuf.WriteString(statusRight)
+		}
+	}
+
+	e.renderBuf.WriteString(ResetFormat)
+	// Position cursor
+	screenY := (b.Cy - b.RowOff) + 1
+	screenX := (b.Vx - b.ColOff) + 1
+
+	// Make sure that cursor is in view
+	if screenY >= 1 && screenY <= e.TermRows {
+		e.renderBuf.WriteString(ansiMoveCursor(screenY, screenX))
+	}
+	// Show cursor
+	e.renderBuf.WriteString(ShowCursor)
+	os.Stdout.Write(e.renderBuf.Bytes())
+}
+
+// Updates editor window size and keeps cursor clamped
 func (e *Editor) updateWindowSize() {
 	width, height, err := term.GetSize(int(os.Stdout.Fd()))
 	if err == nil {
-		e.ScreenCols = width
-		e.ScreenRows = height - 1
+		e.TermCols = width
+		// Reserve 1 line for status bar
+		e.TermRows = height - 1
+
+		// Keep cursor in bounds
+		b := e.curBuf()
+		if b != nil {
+			if b.Cy >= len(b.Rows) {
+				b.Cy = len(b.Rows) - 1
+			}
+			e.clampCursor(b)
+		}
 	}
 }
