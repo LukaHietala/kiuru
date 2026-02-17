@@ -12,6 +12,8 @@ const (
 	ReverseVideo = "\x1b[7m"
 	ResetFormat  = "\x1b[m"
 	ClearScreen  = "\x1b[2J"
+
+	DimMode = "\x1b[2m"
 )
 
 func MoveCursor(y, x int) string {

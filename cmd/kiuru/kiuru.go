@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -231,6 +232,13 @@ func (e *Editor) clampCursor(b *Buffer) {
 	b.Cx = min(b.DesiredCx, rowLen)
 }
 
+// Determines line gutter width
+func (e *Editor) getGutterWidth(b *Buffer) int {
+	digits := len(fmt.Sprintf("%d", len(b.Rows)))
+	digits = max(3, digits)
+	return digits + 2
+}
+
 // "Scrolls" the view to right place for renderer
 func (e *Editor) scroll() {
 	b := e.curBuf()
@@ -263,11 +271,15 @@ func (e *Editor) scroll() {
 	}
 
 	// Horizontal scrolling
+	// Reduce terminal width by the size of the gutter
+	gutterWidth := e.getGutterWidth(b)
+	termWidth := e.TermCols - gutterWidth
+
 	if b.Vx < b.ColOff {
 		b.ColOff = b.Vx
 	}
-	if b.Vx >= b.ColOff+e.TermCols {
-		b.ColOff = b.Vx - e.TermCols + 1
+	if b.Vx >= b.ColOff+termWidth {
+		b.ColOff = b.Vx - termWidth + 1
 	}
 }
 
@@ -280,8 +292,23 @@ func (e *Editor) render() {
 	b := e.curBuf()
 	e.scroll()
 
+	gutterWidth := e.getGutterWidth(b)
+	textWidth := e.TermCols - gutterWidth
+
 	for y := range e.TermRows {
 		bufRow := y + b.RowOff
+
+		// Draw Gutter
+		if bufRow < len(b.Rows) {
+			e.renderBuf.WriteString(ansi.DimMode)
+			// Right align line number, leave some padding
+			fmt.Fprintf(&e.renderBuf, "%*d ", gutterWidth-1, bufRow+1)
+			e.renderBuf.WriteString(ansi.ResetFormat)
+		} else {
+			e.renderBuf.WriteString(strings.Repeat(" ", gutterWidth))
+		}
+
+		// Draw Content
 		if bufRow >= len(b.Rows) {
 			e.renderBuf.WriteString("~")
 		} else {
@@ -297,12 +324,12 @@ func (e *Editor) render() {
 				}
 
 				// If character starts past the right edge, stop
-				if rx-b.ColOff >= e.TermCols {
+				if rx-b.ColOff >= textWidth {
 					break
 				}
 
 				// If character ends past right edge, stop
-				if (rx-b.ColOff)+w > e.TermCols {
+				if (rx-b.ColOff)+w > textWidth {
 					break
 				}
 
@@ -315,9 +342,6 @@ func (e *Editor) render() {
 						}
 					} else {
 						e.renderBuf.WriteRune(c)
-						// If it's a wide char (width 2), RuneWidth returns 2,
-						// but WriteRune only writes the bytes. The terminal handles spacing.
-						// Now just rely on rx incrementing by width to track cursor correctly :katti:
 					}
 				}
 				rx += w
@@ -381,7 +405,7 @@ func (e *Editor) render() {
 	e.renderBuf.WriteString(ansi.ResetFormat)
 	// Position cursor
 	screenY := (b.Cy - b.RowOff) + 1
-	screenX := (b.Vx - b.ColOff) + 1
+	screenX := (b.Vx - b.ColOff) + 1 + gutterWidth
 
 	// Make sure that cursor is in view
 	if screenY >= 1 && screenY <= e.TermRows {
