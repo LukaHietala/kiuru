@@ -12,25 +12,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lukahietala/kiuru/internal/ansi"
 	"github.com/mattn/go-runewidth"
 	"golang.org/x/term"
 )
-
-const (
-	HideCursor   = "\x1b[?25l"
-	ShowCursor   = "\x1b[?25h"
-	ClearLine    = "\x1b[K"
-	CursorHome   = "\x1b[H"
-	AltBufferOn  = "\x1b[?1049h"
-	AltBufferOff = "\x1b[?1049l"
-	ReverseVideo = "\x1b[7m"
-	ResetFormat  = "\x1b[m"
-	ClearScreen  = "\x1b[2J"
-)
-
-func ansiMoveCursor(y, x int) string {
-	return fmt.Sprintf("\x1b[%d;%dH", y, x)
-}
 
 const (
 	ModeNormal = iota
@@ -94,7 +79,7 @@ func main() {
 	}
 
 	// Setup terminal
-	os.Stdout.WriteString(AltBufferOn + ClearScreen + CursorHome)
+	os.Stdout.WriteString(ansi.AltBufferOn + ansi.ClearScreen + ansi.CursorHome)
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
 		panic(err)
@@ -102,7 +87,7 @@ func main() {
 
 	defer func() {
 		term.Restore(int(os.Stdin.Fd()), oldState)
-		os.Stdout.WriteString(AltBufferOff + ClearScreen + CursorHome)
+		os.Stdout.WriteString(ansi.AltBufferOff + ansi.ClearScreen + ansi.CursorHome)
 	}()
 
 	e.updateWindowSize()
@@ -290,7 +275,7 @@ func (e *Editor) scroll() {
 func (e *Editor) render() {
 	start := time.Now()
 	e.renderBuf.Reset()
-	e.renderBuf.WriteString(HideCursor + CursorHome)
+	e.renderBuf.WriteString(ansi.HideCursor + ansi.CursorHome)
 
 	b := e.curBuf()
 	e.scroll()
@@ -340,15 +325,15 @@ func (e *Editor) render() {
 		}
 
 		// Clear line to prevent ghosts
-		e.renderBuf.WriteString(ClearLine)
+		e.renderBuf.WriteString(ansi.ClearLine)
 		if y < e.TermRows-1 {
 			e.renderBuf.WriteString("\r\n")
 		}
 	}
 
 	// Start rendering status bar
-	e.renderBuf.WriteString(ansiMoveCursor(e.TermRows+1, 1))
-	e.renderBuf.WriteString(ReverseVideo)
+	e.renderBuf.WriteString(ansi.MoveCursor(e.TermRows+1, 1))
+	e.renderBuf.WriteString(ansi.ReverseVideo)
 
 	// TODO!: clean up
 	// Left side, basic info
@@ -393,17 +378,17 @@ func (e *Editor) render() {
 		}
 	}
 
-	e.renderBuf.WriteString(ResetFormat)
+	e.renderBuf.WriteString(ansi.ResetFormat)
 	// Position cursor
 	screenY := (b.Cy - b.RowOff) + 1
 	screenX := (b.Vx - b.ColOff) + 1
 
 	// Make sure that cursor is in view
 	if screenY >= 1 && screenY <= e.TermRows {
-		e.renderBuf.WriteString(ansiMoveCursor(screenY, screenX))
+		e.renderBuf.WriteString(ansi.MoveCursor(screenY, screenX))
 	}
 	// Show cursor
-	e.renderBuf.WriteString(ShowCursor)
+	e.renderBuf.WriteString(ansi.ShowCursor)
 	os.Stdout.Write(e.renderBuf.Bytes())
 }
 
