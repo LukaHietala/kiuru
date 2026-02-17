@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -298,19 +297,19 @@ func (e *Editor) render() {
 	for y := range e.TermRows {
 		bufRow := y + b.RowOff
 
-		// Draw Gutter
+		// Draw line gutter
 		if bufRow < len(b.Rows) {
 			e.renderBuf.WriteString(ansi.DimMode)
 			// Right align line number, leave some padding
 			fmt.Fprintf(&e.renderBuf, "%*d ", gutterWidth-1, bufRow+1)
 			e.renderBuf.WriteString(ansi.ResetFormat)
-		} else {
-			e.renderBuf.WriteString(strings.Repeat(" ", gutterWidth))
 		}
 
-		// Draw Content
+		// Draw buffer rows
 		if bufRow >= len(b.Rows) {
+			e.renderBuf.WriteString(ansi.DimMode)
 			e.renderBuf.WriteString("~")
+			e.renderBuf.WriteString(ansi.ResetFormat)
 		} else {
 			line := b.Rows[bufRow]
 			// Visual char x pos
