@@ -110,17 +110,14 @@ func main() {
 	// TODO: Handle SIGHUP
 	// TODO: Recover from panic, save, then exit
 
+	// Initial render
+	e.mu.Lock()
+	e.render()
+	e.mu.Unlock()
+
 	reader := bufio.NewReader(os.Stdin)
 
 	for {
-		e.mu.Lock()
-		if e.Quit {
-			e.mu.Unlock()
-			break
-		}
-		e.render()
-		e.mu.Unlock()
-
 		char, _, err := reader.ReadRune()
 		if err != nil {
 			break
@@ -128,6 +125,17 @@ func main() {
 
 		e.mu.Lock()
 		e.processKey(char)
+		// TODO: https://en.wikipedia.org/wiki/Bracketed-paste
+		for reader.Buffered() > 0 {
+			char, _, _ = reader.ReadRune()
+			e.processKey(char)
+		}
+
+		if e.Quit {
+			e.mu.Unlock()
+			break
+		}
+		e.render()
 		e.mu.Unlock()
 	}
 }
