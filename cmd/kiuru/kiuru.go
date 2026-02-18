@@ -435,6 +435,26 @@ func (e *Editor) pageDown() {
 	e.clampCursor(b)
 }
 
+func (e *Editor) moveToLast() {
+	b := e.curBuf()
+	if b == nil {
+		return
+	}
+
+	b.Cy = len(b.Rows) - 1
+	e.clampCursor(b)
+}
+
+func (e *Editor) moveToFirst() {
+	b := e.curBuf()
+	if b == nil {
+		return
+	}
+
+	b.Cy = 0
+	e.clampCursor(b)
+}
+
 // Handles all keypresses
 func (e *Editor) processKey(char rune) {
 	b := e.curBuf()
@@ -452,6 +472,8 @@ func (e *Editor) processKey(char rune) {
 		case 'h', 'j', 'k', 'l',
 			KeyArrowUp, KeyArrowDown, KeyArrowLeft, KeyArrowRight:
 			e.moveCursor(char)
+		case 'G':
+			e.moveToLast()
 		case KeyPageUp:
 			e.pageUp()
 		case KeyPageDown:
