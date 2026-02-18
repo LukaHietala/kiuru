@@ -335,27 +335,46 @@ func (e *Editor) insertNewline() {
 	b.DesiredCx = 0
 }
 
-func (e *Editor) deleteChar() {
+func (e *Editor) deleteChar(backspace bool) {
 	b := e.curBuf()
 
-	if b.Cx > 0 {
-		// Middle of the line
-		b.Rows[b.Cy] = slices.Delete(b.Rows[b.Cy], b.Cx-1, b.Cx)
-		b.Cx--
-	} else if b.Cy > 0 {
-		// Start of line (merge with previous)
-		prevRowIndex := b.Cy - 1
-		// Move cursor to previous end
-		b.Cx = len(b.Rows[prevRowIndex])
+	if backspace {
+		if b.Cx > 0 {
+			// Middle of the line
+			b.Rows[b.Cy] = slices.Delete(b.Rows[b.Cy], b.Cx-1, b.Cx)
+			b.Cx--
+		} else if b.Cy > 0 {
+			// Start of line (merge with previous)
+			prevRowIndex := b.Cy - 1
+			// Move cursor to previous end
+			b.Cx = len(b.Rows[prevRowIndex])
 
-		// Merge current row into previous
-		b.Rows[prevRowIndex] = append(b.Rows[prevRowIndex], b.Rows[b.Cy]...)
+			// Merge current row into previous
+			b.Rows[prevRowIndex] = append(b.Rows[prevRowIndex], b.Rows[b.Cy]...)
 
-		// Remove the empty current row
-		b.Rows = slices.Delete(b.Rows, b.Cy, b.Cy+1)
-		b.Cy--
-	} else {
-		return
+			// Remove the empty current row
+			b.Rows = slices.Delete(b.Rows, b.Cy, b.Cy+1)
+			b.Cy--
+		} else {
+			return
+		}
+	} else { // DEL
+		if b.Cx < len(b.Rows[b.Cy]) {
+			// If before line end
+			b.Rows[b.Cy] = slices.Delete(b.Rows[b.Cy], b.Cx, b.Cx+1)
+		} else if b.Cy < len(b.Rows)-1 {
+			// If at line end
+			nextRowIndex := b.Cy + 1
+
+			// Merge next line with current
+			b.Rows[b.Cy] = append(b.Rows[b.Cy], b.Rows[nextRowIndex]...)
+
+			// Remove the next row
+			b.Rows = slices.Delete(b.Rows, nextRowIndex, nextRowIndex+1)
+
+		} else {
+			return
+		}
 	}
 
 	b.Dirty = true
@@ -437,6 +456,8 @@ func (e *Editor) processKey(char rune) {
 			e.pageUp()
 		case KeyPageDown:
 			e.pageDown()
+		case KeyDelete, 'x':
+			e.deleteChar(false)
 		}
 	case ModeInsert:
 		switch char {
@@ -445,7 +466,9 @@ func (e *Editor) processKey(char rune) {
 		case 13: // Enter
 			e.insertNewline()
 		case 127: // Backspace
-			e.deleteChar()
+			e.deleteChar(true)
+		case KeyDelete:
+			e.deleteChar(false)
 		case KeyArrowUp, KeyArrowDown, KeyArrowLeft, KeyArrowRight:
 			e.moveCursor(char)
 		case KeyPageUp:
@@ -600,7 +623,7 @@ func (e *Editor) render() {
 	e.renderBuf.WriteString(ansi.ReverseVideo)
 
 	// TODO!: clean up
-	// Left side, basic info
+	// Left side, basic info (+1 to coords just to confuse)
 	statusLeft := fmt.Sprintf(" %s - (%d,%d)", b.Name, b.Cy+1, b.Cx+1)
 
 	// Right side, debug
