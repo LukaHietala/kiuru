@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"runtime/debug"
 	"slices"
 	"sync"
 	"syscall"
@@ -148,6 +149,13 @@ func main() {
 	defer func() {
 		term.Restore(int(os.Stdin.Fd()), oldState)
 		os.Stdout.WriteString(ansi.AltBufferOff + ansi.ClearScreen + ansi.CursorHome)
+
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "Crashed?!? Recovering...\n")
+			fmt.Fprintf(os.Stderr, "Error: %v\n", r)
+			debug.PrintStack()
+			os.Exit(1)
+		}
 	}()
 
 	e.updateWindowSize()
@@ -166,7 +174,6 @@ func main() {
 	}()
 
 	// TODO: Handle SIGHUP
-	// TODO: Recover from panic, save, then exit
 
 	// Initial render
 	e.mu.Lock()
