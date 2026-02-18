@@ -30,15 +30,28 @@ const (
 )
 
 // Control sequences
+// Reference: https://invisible-island.net/xterm/ctlseqs/ctlseqs.html (comments below to help search)
 const (
-	// \x1b[A
+	// CSI A
 	KeyArrowUp = 1000 + iota
-	// \x1b[B
+	// CSI B
 	KeyArrowDown
-	// \x1b[C
+	// CSI C
 	KeyArrowRight
-	// \x1b[C
+	// CSI D
 	KeyArrowLeft
+	// CSI 2 ~
+	KeyInsert
+	// CSI 3 ~
+	KeyDelete
+	// CSI 1 ~
+	KeyHome
+	// CSI 4 ~ OR CSI H
+	KeyEnd
+	// CSI 5 ~ OR CSI F
+	KeyPageUp
+	// CSI 6 ~
+	KeyPageDown
 )
 
 type Buffer struct {
@@ -91,7 +104,6 @@ func readKey(reader *bufio.Reader) (rune, error) {
 			return char, nil
 		}
 
-		// Reference: https://invisible-island.net/xterm/ctlseqs/ctlseqs.html (comments below to help search)
 		// Only handles CSI, maybe SS3 later
 		if seq1 == '[' {
 			seq2, _, err := reader.ReadRune()
@@ -99,19 +111,37 @@ func readKey(reader *bufio.Reader) (rune, error) {
 				return char, nil
 			}
 
-			switch seq2 {
-			// CSI A
-			case 'A':
-				return KeyArrowUp, nil
-				// CSI B
-			case 'B':
-				return KeyArrowDown, nil
-				// CSI C
-			case 'C':
-				return KeyArrowRight, nil
-				// CSI D
-			case 'D':
-				return KeyArrowLeft, nil
+			if seq2 >= '0' && seq2 <= '6' {
+				seq3, _, _ := reader.ReadRune()
+				if seq3 == '~' {
+					switch seq2 {
+					case '1':
+						return KeyHome, nil
+					case '3':
+						return KeyDelete, nil
+					case '4':
+						return KeyEnd, nil
+					case '5':
+						return KeyPageUp, nil
+					case '6':
+						return KeyPageDown, nil
+					}
+				}
+			} else {
+				switch seq2 {
+				case 'A':
+					return KeyArrowUp, nil
+				case 'B':
+					return KeyArrowDown, nil
+				case 'C':
+					return KeyArrowRight, nil
+				case 'D':
+					return KeyArrowLeft, nil
+				case 'H':
+					return KeyHome, nil
+				case 'F':
+					return KeyEnd, nil
+				}
 			}
 		}
 	}
@@ -358,6 +388,34 @@ func (e *Editor) moveCursor(char rune) {
 	}
 }
 
+func (e *Editor) pageUp() {
+	b := e.curBuf()
+	if b == nil {
+		return
+	}
+
+	b.Cy -= e.TermRows
+
+	if b.Cy < 0 {
+		b.Cy = 0
+	}
+	e.clampCursor(b)
+}
+
+func (e *Editor) pageDown() {
+	b := e.curBuf()
+	if b == nil {
+		return
+	}
+
+	b.Cy += e.TermRows
+
+	if b.Cy > len(b.Rows)-1 {
+		b.Cy = len(b.Rows) - 1
+	}
+	e.clampCursor(b)
+}
+
 // Handles all keypresses
 func (e *Editor) processKey(char rune) {
 	b := e.curBuf()
@@ -375,6 +433,10 @@ func (e *Editor) processKey(char rune) {
 		case 'h', 'j', 'k', 'l',
 			KeyArrowUp, KeyArrowDown, KeyArrowLeft, KeyArrowRight:
 			e.moveCursor(char)
+		case KeyPageUp:
+			e.pageUp()
+		case KeyPageDown:
+			e.pageDown()
 		}
 	case ModeInsert:
 		switch char {
@@ -386,6 +448,10 @@ func (e *Editor) processKey(char rune) {
 			e.deleteChar()
 		case KeyArrowUp, KeyArrowDown, KeyArrowLeft, KeyArrowRight:
 			e.moveCursor(char)
+		case KeyPageUp:
+			e.pageUp()
+		case KeyPageDown:
+			e.pageDown()
 		case '\t': // Tab :katti:
 			e.insertChar('\t')
 		default:
