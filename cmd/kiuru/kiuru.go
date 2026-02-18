@@ -8,9 +8,11 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/lukahietala/kiuru/internal/ansi"
 	"github.com/mattn/go-runewidth"
@@ -187,36 +189,121 @@ func (e *Editor) addBuffer(listed bool, scratch bool) {
 	e.BufIndex = len(e.Buffers) - 1
 }
 
+func (e *Editor) insertChar(char rune) {
+	b := e.curBuf()
+
+	for b.Cy >= len(b.Rows) {
+		b.Rows = append(b.Rows, []rune{})
+	}
+
+	b.Rows[b.Cy] = slices.Insert(b.Rows[b.Cy], b.Cx, char)
+
+	b.Cx++
+	b.Dirty = true
+	b.DesiredCx = b.Cx
+}
+
+func (e *Editor) insertNewline() {
+	b := e.curBuf()
+
+	for b.Cy >= len(b.Rows) {
+		b.Rows = append(b.Rows, []rune{})
+	}
+
+	currentRow := b.Rows[b.Cy]
+
+	// Save chars from right
+	remainder := make([]rune, len(currentRow[b.Cx:]))
+	copy(remainder, currentRow[b.Cx:])
+
+	// Remove chars from right
+	b.Rows[b.Cy] = currentRow[:b.Cx]
+
+	// Insert the remainder as a new row
+	b.Rows = slices.Insert(b.Rows, b.Cy+1, remainder)
+
+	b.Cy++
+	b.Cx = 0
+	b.Dirty = true
+	b.DesiredCx = 0
+}
+
+func (e *Editor) deleteChar() {
+	b := e.curBuf()
+
+	if b.Cx > 0 {
+		// Middle of the line
+		b.Rows[b.Cy] = slices.Delete(b.Rows[b.Cy], b.Cx-1, b.Cx)
+		b.Cx--
+	} else if b.Cy > 0 {
+		// Start of line (merge with previous)
+		prevRowIndex := b.Cy - 1
+		// Move cursor to previous end
+		b.Cx = len(b.Rows[prevRowIndex])
+
+		// Merge current row into previous
+		b.Rows[prevRowIndex] = append(b.Rows[prevRowIndex], b.Rows[b.Cy]...)
+
+		// Remove the empty current row
+		b.Rows = slices.Delete(b.Rows, b.Cy, b.Cy+1)
+		b.Cy--
+	} else {
+		return
+	}
+
+	b.Dirty = true
+	b.DesiredCx = b.Cx
+}
+
 // Handles all keypresses
 func (e *Editor) processKey(char rune) {
 	b := e.curBuf()
 	if b == nil {
 		return
 	}
-	switch char {
-	case 'q':
-		e.Quit = true
 
-	// Basic vim movement (for render testing)
-	case 'h':
-		if b.Cx > 0 {
-			b.Cx--
-			b.DesiredCx = b.Cx
+	switch e.Mode {
+	case ModeNormal:
+		switch char {
+		case 'q':
+			e.Quit = true
+		case 'i':
+			e.Mode = ModeInsert
+		case 'h':
+			if b.Cx > 0 {
+				b.Cx--
+				b.DesiredCx = b.Cx
+			}
+		case 'j':
+			if b.Cy < len(b.Rows)-1 {
+				b.Cy++
+				e.clampCursor(b)
+			}
+		case 'k':
+			if b.Cy > 0 {
+				b.Cy--
+				e.clampCursor(b)
+			}
+		case 'l':
+			if b.Cy < len(b.Rows) && b.Cx < len(b.Rows[b.Cy]) {
+				b.Cx++
+				b.DesiredCx = b.Cx
+			}
 		}
-	case 'j':
-		if b.Cy < len(b.Rows)-1 {
-			b.Cy++
-			e.clampCursor(b)
-		}
-	case 'k':
-		if b.Cy > 0 {
-			b.Cy--
-			e.clampCursor(b)
-		}
-	case 'l':
-		if b.Cy < len(b.Rows) && b.Cx < len(b.Rows[b.Cy]) {
-			b.Cx++
-			b.DesiredCx = b.Cx
+	case ModeInsert:
+		switch char {
+		case 27: // Escape key
+			e.Mode = ModeNormal
+		case 13: // Enter
+			e.insertNewline()
+		case 127: // Backspace
+			e.deleteChar()
+		case '\t': // Tab
+			e.insertChar('\t')
+		default:
+			if unicode.IsPrint(char) {
+				e.insertChar(char)
+			}
 		}
 	}
 }
