@@ -28,6 +28,18 @@ const (
 	TabSize = 4
 )
 
+// Control sequences
+const (
+	// \x1b[A
+	KeyArrowUp = 1000 + iota
+	// \x1b[B
+	KeyArrowDown
+	// \x1b[C
+	KeyArrowRight
+	// \x1b[C
+	KeyArrowLeft
+)
+
 type Buffer struct {
 	Rows      [][]rune // The text buffer
 	Cx, Cy    int      // Real Cursor pos
@@ -55,9 +67,55 @@ type Editor struct {
 	Buffers  []*Buffer // List of buffers
 	BufIndex int       // Index of the active buffer
 
-	renderBuf bytes.Buffer
+	renderBuf bytes.Buffer // Stores buffer to render
 
 	Debug bool
+}
+
+func readKey(reader *bufio.Reader) (rune, error) {
+	char, _, err := reader.ReadRune()
+	if err != nil {
+		return 0, err
+	}
+
+	if char == '\x1b' {
+		// If there are no bytes buffered, it's just escape
+		if reader.Buffered() == 0 {
+			return char, nil
+		}
+
+		// Read next byte (should be "[")
+		seq1, _, err := reader.ReadRune()
+		if err != nil {
+			return char, nil
+		}
+
+		// Reference: https://invisible-island.net/xterm/ctlseqs/ctlseqs.html (comments below to help search)
+		// Only handles CSI, maybe SS3 later
+		if seq1 == '[' {
+			seq2, _, err := reader.ReadRune()
+			if err != nil {
+				return char, nil
+			}
+
+			switch seq2 {
+			// CSI A
+			case 'A':
+				return KeyArrowUp, nil
+				// CSI B
+			case 'B':
+				return KeyArrowDown, nil
+				// CSI C
+			case 'C':
+				return KeyArrowRight, nil
+				// CSI D
+			case 'D':
+				return KeyArrowLeft, nil
+			}
+		}
+	}
+
+	return char, nil
 }
 
 func main() {
@@ -118,16 +176,19 @@ func main() {
 	reader := bufio.NewReader(os.Stdin)
 
 	for {
-		char, _, err := reader.ReadRune()
+		char, err := readKey(reader)
 		if err != nil {
 			break
 		}
 
 		e.mu.Lock()
 		e.processKey(char)
-		// TODO: https://en.wikipedia.org/wiki/Bracketed-paste
+
 		for reader.Buffered() > 0 {
-			char, _, _ = reader.ReadRune()
+			char, err := readKey(reader)
+			if err != nil {
+				break
+			}
 			e.processKey(char)
 		}
 
@@ -135,6 +196,7 @@ func main() {
 			e.mu.Unlock()
 			break
 		}
+
 		e.render()
 		e.mu.Unlock()
 	}
@@ -263,6 +325,32 @@ func (e *Editor) deleteChar() {
 	b.DesiredCx = b.Cx
 }
 
+func (e *Editor) moveCursor(char rune) {
+	b := e.curBuf()
+	switch char {
+	case 'h', KeyArrowLeft:
+		if b.Cx > 0 {
+			b.Cx--
+			b.DesiredCx = b.Cx
+		}
+	case 'j', KeyArrowDown:
+		if b.Cy < len(b.Rows)-1 {
+			b.Cy++
+			e.clampCursor(b)
+		}
+	case 'k', KeyArrowUp:
+		if b.Cy > 0 {
+			b.Cy--
+			e.clampCursor(b)
+		}
+	case 'l', KeyArrowRight:
+		if b.Cy < len(b.Rows) && b.Cx < len(b.Rows[b.Cy]) {
+			b.Cx++
+			b.DesiredCx = b.Cx
+		}
+	}
+}
+
 // Handles all keypresses
 func (e *Editor) processKey(char rune) {
 	b := e.curBuf()
@@ -277,26 +365,9 @@ func (e *Editor) processKey(char rune) {
 			e.Quit = true
 		case 'i':
 			e.Mode = ModeInsert
-		case 'h':
-			if b.Cx > 0 {
-				b.Cx--
-				b.DesiredCx = b.Cx
-			}
-		case 'j':
-			if b.Cy < len(b.Rows)-1 {
-				b.Cy++
-				e.clampCursor(b)
-			}
-		case 'k':
-			if b.Cy > 0 {
-				b.Cy--
-				e.clampCursor(b)
-			}
-		case 'l':
-			if b.Cy < len(b.Rows) && b.Cx < len(b.Rows[b.Cy]) {
-				b.Cx++
-				b.DesiredCx = b.Cx
-			}
+		case 'h', 'j', 'k', 'l',
+			KeyArrowUp, KeyArrowDown, KeyArrowLeft, KeyArrowRight:
+			e.moveCursor(char)
 		}
 	case ModeInsert:
 		switch char {
@@ -306,7 +377,9 @@ func (e *Editor) processKey(char rune) {
 			e.insertNewline()
 		case 127: // Backspace
 			e.deleteChar()
-		case '\t': // Tab
+		case KeyArrowUp, KeyArrowDown, KeyArrowLeft, KeyArrowRight:
+			e.moveCursor(char)
+		case '\t': // Tab :katti:
 			e.insertChar('\t')
 		default:
 			if unicode.IsPrint(char) {
