@@ -681,6 +681,12 @@ func (e *Editor) render() {
 	// Left side, basic info (+1 to coords just to confuse)
 	statusLeft := fmt.Sprintf(" %s - (%d,%d)", b.Name, b.Cy+1, b.Cx+1)
 
+	if e.Mode == ModeInsert {
+		statusLeft += " (insert)"
+	} else {
+		statusLeft += " (normal)"
+	}
+
 	// Right side, debug
 	statusRight := ""
 	if e.Debug {
