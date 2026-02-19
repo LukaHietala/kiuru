@@ -455,6 +455,31 @@ func (e *Editor) moveToFirst() {
 	e.clampCursor(b)
 }
 
+func (e *Editor) moveEnd() {
+	b := e.curBuf()
+	if b == nil {
+		return
+	}
+
+	if len(b.Rows[b.Cy]) == 0 {
+		b.Cx = 0
+	} else {
+		b.Cx = len(b.Rows[b.Cy])
+	}
+
+	b.DesiredCx = b.Cx
+}
+
+func (e *Editor) moveHome() {
+	b := e.curBuf()
+	if b == nil {
+		return
+	}
+
+	b.Cx = 0
+	b.DesiredCx = b.Cx
+}
+
 // Handles all keypresses
 func (e *Editor) processKey(char rune) {
 	b := e.curBuf()
@@ -478,6 +503,10 @@ func (e *Editor) processKey(char rune) {
 			e.pageUp()
 		case KeyPageDown:
 			e.pageDown()
+		case KeyHome:
+			e.moveHome()
+		case KeyEnd:
+			e.moveEnd()
 		case KeyDelete, 'x':
 			e.deleteChar(false)
 		}
@@ -497,6 +526,10 @@ func (e *Editor) processKey(char rune) {
 			e.pageUp()
 		case KeyPageDown:
 			e.pageDown()
+		case KeyHome:
+			e.moveHome()
+		case KeyEnd:
+			e.moveEnd()
 		case '\t': // Tab :katti:
 			e.insertChar('\t')
 		default:
