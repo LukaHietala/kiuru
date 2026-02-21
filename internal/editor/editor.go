@@ -81,6 +81,10 @@ func (e *Editor) ProcessKey(key Key) {
 			e.Quit = true
 		case 'i':
 			e.Mode = ModeInsert
+		case 'v':
+			e.Mode = ModeVisual
+			b.Selection.Start = Mark{X: b.Cx, Y: b.Cy}
+			b.Selection.Active = true
 		case 'h', KeyArrowLeft:
 			if b.Cx > 0 {
 				b.Cx--
@@ -170,6 +174,35 @@ func (e *Editor) ProcessKey(key Key) {
 		default:
 			if unicode.IsPrint(rune(key)) {
 				b.InsertChar(rune(key))
+			}
+		}
+	case ModeVisual:
+		switch key {
+		case 27, 'v':
+			e.Mode = ModeNormal
+			b.Selection.Clear()
+		case 'd', 'x', KeyDelete:
+			b.DeleteSelection()
+			e.Mode = ModeNormal
+		case 'h', KeyArrowLeft:
+			if b.Cx > 0 {
+				b.Cx--
+				b.DesiredCx = b.Cx
+			}
+		case 'j', KeyArrowDown:
+			if b.Cy < len(b.Rows)-1 {
+				b.Cy++
+				b.ClampCursor()
+			}
+		case 'k', KeyArrowUp:
+			if b.Cy > 0 {
+				b.Cy--
+				b.ClampCursor()
+			}
+		case 'l', KeyArrowRight:
+			if b.Cy < len(b.Rows) && b.Cx < len(b.Rows[b.Cy]) {
+				b.Cx++
+				b.DesiredCx = b.Cx
 			}
 		}
 	}

@@ -6,6 +6,7 @@ type Key rune
 const (
 	ModeNormal Mode = iota
 	ModeInsert
+	ModeVisual
 )
 
 const TabSize = 4

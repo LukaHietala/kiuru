@@ -77,7 +77,7 @@ func (r *TermRenderer) Render(b *Buffer, mode Mode, debug bool) {
 		} else {
 			line := b.Rows[bufRow]
 			rx := 0
-			for _, c := range line {
+			for i, c := range line {
 				// Get real width since some chars are 0-2 cols wide
 				w := runewidth.RuneWidth(c)
 				if c == '\t' {
@@ -87,10 +87,17 @@ func (r *TermRenderer) Render(b *Buffer, mode Mode, debug bool) {
 					break
 				}
 				if rx >= b.ColOff {
+					isSelected := mode == ModeVisual && b.Selection.Contains(i, bufRow, b.Cx, b.Cy)
+					if isSelected {
+						r.buf.WriteString(ansi.ReverseVideo)
+					}
 					if c == '\t' {
 						fmt.Fprintf(&r.buf, "%*s", w, "")
 					} else {
 						r.buf.WriteRune(c)
+					}
+					if isSelected {
+						r.buf.WriteString(ansi.ResetFormat)
 					}
 				}
 				rx += w
@@ -119,8 +126,11 @@ func (r *TermRenderer) renderStatusBar(b *Buffer, mode Mode, debug bool, start t
 	r.buf.WriteString(ansi.MoveCursor(r.rows+1, 1) + ansi.ReverseVideo)
 
 	modeStr := "normal"
-	if mode == ModeInsert {
+	switch mode {
+	case ModeInsert:
 		modeStr = "insert"
+	case ModeVisual:
+		modeStr = "visual"
 	}
 
 	readOnlyStr := ""

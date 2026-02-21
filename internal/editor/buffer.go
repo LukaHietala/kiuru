@@ -19,6 +19,7 @@ type Buffer struct {
 	Scratch   bool
 	Listed    bool
 	ReadOnly  bool
+	Selection VisualSelection
 }
 
 func NewBuffer(path string, scratch, listed bool) (*Buffer, error) {
@@ -132,6 +133,55 @@ func (b *Buffer) DeleteChar(backspace bool) {
 	}
 	b.Dirty = true
 	b.DesiredCx = b.Cx
+}
+
+func (b *Buffer) DeleteSelection() {
+	if !b.Selection.Active {
+		return
+	}
+	start, end := b.Selection.NormalizedBounds(b.Cx, b.Cy)
+
+	if start.Y >= len(b.Rows) {
+		return
+	}
+	if end.Y >= len(b.Rows) {
+		end.Y = len(b.Rows) - 1
+	}
+
+	startRowLen := len(b.Rows[start.Y])
+	if start.X > startRowLen {
+		start.X = startRowLen
+	}
+
+	endRowLen := len(b.Rows[end.Y])
+	if end.X >= endRowLen {
+		end.X = max(0, endRowLen-1)
+	}
+
+	if start.Y == end.Y {
+		// Single-line delete
+		if start.X <= end.X && start.X < len(b.Rows[start.Y]) {
+			b.Rows[start.Y] = slices.Delete(b.Rows[start.Y], start.X, end.X+1)
+		}
+	} else {
+		// Multi-line delete
+		firstHalf := b.Rows[start.Y][:start.X]
+
+		var secondHalf []rune
+		if end.X+1 < len(b.Rows[end.Y]) {
+			secondHalf = b.Rows[end.Y][end.X+1:]
+		}
+
+		b.Rows[start.Y] = append(firstHalf, secondHalf...)
+		b.Rows = slices.Delete(b.Rows, start.Y+1, end.Y+1)
+	}
+
+	b.Cx = start.X
+	b.Cy = start.Y
+	b.DesiredCx = b.Cx
+	b.ClampCursor()
+	b.Selection.Clear()
+	b.Dirty = true
 }
 
 func (b *Buffer) ClampCursor() {
