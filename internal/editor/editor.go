@@ -1,0 +1,219 @@
+package editor
+
+import (
+	"sync"
+	"unicode"
+
+	"github.com/mattn/go-runewidth"
+)
+
+type Editor struct {
+	mu       sync.Mutex
+	Mode     Mode
+	Quit     bool
+	Buffers  []*Buffer
+	BufIndex int
+	Debug    bool
+
+	// Usually stdin
+	input  InputReader
+	render Renderer
+}
+
+func NewEditor(in InputReader, render Renderer, debug bool) *Editor {
+	e := &Editor{
+		Mode:    ModeNormal,
+		Buffers: []*Buffer{},
+		Debug:   debug,
+		input:   in,
+		render:  render,
+	}
+	e.render.UpdateSize()
+	return e
+}
+
+func (e *Editor) AddBuffer(b *Buffer) {
+	e.Buffers = append(e.Buffers, b)
+	e.BufIndex = len(e.Buffers) - 1
+}
+
+func (e *Editor) CurBuf() *Buffer {
+	if len(e.Buffers) == 0 {
+		return nil
+	}
+	return e.Buffers[e.BufIndex]
+}
+
+func (e *Editor) UpdateSize() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.render.UpdateSize()
+	if b := e.CurBuf(); b != nil {
+		if b.Cy >= len(b.Rows) {
+			b.Cy = max(0, len(b.Rows)-1)
+		}
+		b.ClampCursor()
+	}
+}
+
+func (e *Editor) Draw() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.scroll()
+	e.render.Render(e.CurBuf(), e.Mode, e.Debug)
+}
+
+func (e *Editor) ProcessKey(key Key) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	b := e.CurBuf()
+	if b == nil {
+		return
+	}
+
+	switch e.Mode {
+	case ModeNormal:
+		switch key {
+		case 'q':
+			e.Quit = true
+		case 'i':
+			e.Mode = ModeInsert
+		case 'h', KeyArrowLeft:
+			if b.Cx > 0 {
+				b.Cx--
+				b.DesiredCx = b.Cx
+			}
+		case 'j', KeyArrowDown:
+			if b.Cy < len(b.Rows)-1 {
+				b.Cy++
+				b.ClampCursor()
+			}
+		case 'k', KeyArrowUp:
+			if b.Cy > 0 {
+				b.Cy--
+				b.ClampCursor()
+			}
+		case 'l', KeyArrowRight:
+			if b.Cy < len(b.Rows) && b.Cx < len(b.Rows[b.Cy]) {
+				b.Cx++
+				b.DesiredCx = b.Cx
+			}
+		case 'G':
+			b.Cy = len(b.Rows) - 1
+			b.ClampCursor()
+		case KeyPageUp:
+			_, termRows := e.render.Size()
+			b.Cy = max(0, b.Cy-termRows)
+			b.ClampCursor()
+		case KeyPageDown:
+			_, termRows := e.render.Size()
+			b.Cy = min(len(b.Rows)-1, b.Cy+termRows)
+			b.ClampCursor()
+		case KeyHome:
+			b.Cx = 0
+			b.DesiredCx = b.Cx
+		case KeyEnd:
+			b.Cx = len(b.Rows[b.Cy])
+			b.DesiredCx = b.Cx
+		case KeyDelete, 'x':
+			b.DeleteChar(false)
+		}
+	case ModeInsert:
+		switch key {
+		case 27: // Escape
+			e.Mode = ModeNormal
+		case 13: // Enter
+			b.InsertNewline()
+		case 127: // Backspace
+			b.DeleteChar(true)
+		case KeyDelete:
+			b.DeleteChar(false)
+		case '\t':
+			b.InsertChar('\t')
+		case KeyArrowLeft:
+			if b.Cx > 0 {
+				b.Cx--
+				b.DesiredCx = b.Cx
+			}
+		case KeyArrowDown:
+			if b.Cy < len(b.Rows)-1 {
+				b.Cy++
+				b.ClampCursor()
+			}
+		case KeyArrowUp:
+			if b.Cy > 0 {
+				b.Cy--
+				b.ClampCursor()
+			}
+		case KeyArrowRight:
+			if b.Cy < len(b.Rows) && b.Cx < len(b.Rows[b.Cy]) {
+				b.Cx++
+				b.DesiredCx = b.Cx
+			}
+		case KeyPageUp:
+			_, termRows := e.render.Size()
+			b.Cy = max(0, b.Cy-termRows)
+			b.ClampCursor()
+		case KeyPageDown:
+			_, termRows := e.render.Size()
+			b.Cy = min(len(b.Rows)-1, b.Cy+termRows)
+			b.ClampCursor()
+		case KeyHome:
+			b.Cx = 0
+			b.DesiredCx = b.Cx
+		case KeyEnd:
+			b.Cx = len(b.Rows[b.Cy])
+			b.DesiredCx = b.Cx
+		default:
+			if unicode.IsPrint(rune(key)) {
+				b.InsertChar(rune(key))
+			}
+		}
+	}
+}
+
+func (e *Editor) scroll() {
+	// TODO: (bug) cursor offsets on horizontal scroll if previous is 2-width char
+	b := e.CurBuf()
+	cols, rows := e.render.Size()
+
+	if b.Cy < b.RowOff {
+		b.RowOff = b.Cy
+	}
+	if b.Cy >= b.RowOff+rows {
+		b.RowOff = b.Cy - rows + 1
+	}
+
+	b.Vx = 0
+	if b.Cy < len(b.Rows) {
+		row := b.Rows[b.Cy]
+		for i := 0; i < b.Cx && i < len(row); i++ {
+			char := row[i]
+			if char == '\t' {
+				b.Vx += (TabSize - 1) - (b.Vx % TabSize)
+				b.Vx++
+			} else {
+				b.Vx += runewidth.RuneWidth(char)
+			}
+		}
+	}
+
+	gutterWidth := getGutterWidth(b)
+	termWidth := cols - gutterWidth
+
+	if b.Vx < b.ColOff {
+		b.ColOff = b.Vx
+	}
+	if b.Vx >= b.ColOff+termWidth {
+		b.ColOff = b.Vx - termWidth + 1
+	}
+}
+
+func (e *Editor) ShouldQuit() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.Quit
+}
