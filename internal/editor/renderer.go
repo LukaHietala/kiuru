@@ -82,6 +82,8 @@ func (r *TermRenderer) Render(b *Buffer, mode Mode, debug bool) {
 				w := runewidth.RuneWidth(c)
 				if c == '\t' {
 					w = TabSize - (rx % TabSize)
+				} else if c == '\r' {
+					w = 2 // ^M
 				}
 				if rx-b.ColOff >= textWidth || (rx-b.ColOff)+w > textWidth {
 					break
@@ -93,6 +95,8 @@ func (r *TermRenderer) Render(b *Buffer, mode Mode, debug bool) {
 					}
 					if c == '\t' {
 						fmt.Fprintf(&r.buf, "%*s", w, "")
+					} else if c == '\r' {
+						r.buf.WriteString(ansi.DimMode + "^M" + ansi.ResetFormat)
 					} else {
 						r.buf.WriteRune(c)
 					}
@@ -133,12 +137,17 @@ func (r *TermRenderer) renderStatusBar(b *Buffer, mode Mode, debug bool, start t
 		modeStr = "visual"
 	}
 
+	formatStr := "[UNIX]"
+	if b.Format == FormatDOS {
+		formatStr = "[DOS]"
+	}
+
 	readOnlyStr := ""
 	if b.ReadOnly {
 		readOnlyStr = "(RO)"
 	}
 
-	statusLeft := fmt.Sprintf("%s %s - (%d,%d) (%s)", readOnlyStr, b.Name, b.Cy+1, b.Cx+1, modeStr)
+	statusLeft := fmt.Sprintf("%s %s - (%d,%d) (%s) %s", readOnlyStr, b.Name, b.Cy+1, b.Cx+1, modeStr, formatStr)
 
 	statusRight := ""
 	if debug {

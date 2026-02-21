@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"slices"
+	"strings"
 )
 
 type Buffer struct {
@@ -20,6 +21,7 @@ type Buffer struct {
 	Listed    bool
 	ReadOnly  bool
 	Selection VisualSelection
+	Format    FileFormat
 }
 
 func NewBuffer(path string, scratch, listed bool) (*Buffer, error) {
@@ -28,6 +30,7 @@ func NewBuffer(path string, scratch, listed bool) (*Buffer, error) {
 		Scratch: scratch,
 		Listed:  listed,
 		Rows:    [][]rune{},
+		Format:  FormatUnix,
 	}
 
 	if scratch {
@@ -67,14 +70,44 @@ func NewBuffer(path string, scratch, listed bool) (*Buffer, error) {
 	}
 	defer file.Close()
 
-	// TODO: Use reader and detect line endings
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		b.Rows = append(b.Rows, []rune(scanner.Text()))
+	reader := bufio.NewReader(file)
+	var rawLines []string
+	// Try to smartly detect line endings
+	// TODO: Change?
+	dosCount, unixCount := 0, 0
+
+	for {
+		line, err := reader.ReadString('\n')
+		if len(line) > 0 {
+			if strings.HasSuffix(line, "\r\n") {
+				dosCount++
+			} else if strings.HasSuffix(line, "\n") {
+				unixCount++
+			}
+			rawLines = append(rawLines, line)
+		}
+		if err != nil {
+			break
+		}
 	}
+
+	if dosCount > unixCount {
+		b.Format = FormatDOS
+	}
+
+	for _, line := range rawLines {
+		line = strings.TrimSuffix(line, "\n")
+		// If DOS strip \r too, if UNIX leave it there so it can be rendered as ^M
+		if b.Format == FormatDOS {
+			line = strings.TrimSuffix(line, "\r")
+		}
+		b.Rows = append(b.Rows, []rune(line))
+	}
+
 	if len(b.Rows) == 0 {
 		b.Rows = append(b.Rows, []rune{})
 	}
+
 	return b, nil
 }
 

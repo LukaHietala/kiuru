@@ -2,11 +2,18 @@ package editor
 
 type Mode int
 type Key rune
+type FileFormat int
 
 const (
 	ModeNormal Mode = iota
 	ModeInsert
 	ModeVisual
+)
+
+const (
+	FormatAuto FileFormat = iota
+	FormatUnix            // LF
+	FormatDOS             // CRLF
 )
 
 const TabSize = 4

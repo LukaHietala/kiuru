@@ -86,42 +86,24 @@ func (e *Editor) ProcessKey(key Key) {
 			b.Selection.Start = Mark{X: b.Cx, Y: b.Cy}
 			b.Selection.Active = true
 		case 'h', KeyArrowLeft:
-			if b.Cx > 0 {
-				b.Cx--
-				b.DesiredCx = b.Cx
-			}
+			e.moveLeft(b)
 		case 'j', KeyArrowDown:
-			if b.Cy < len(b.Rows)-1 {
-				b.Cy++
-				b.ClampCursor()
-			}
+			e.moveDown(b)
 		case 'k', KeyArrowUp:
-			if b.Cy > 0 {
-				b.Cy--
-				b.ClampCursor()
-			}
+			e.moveUp(b)
 		case 'l', KeyArrowRight:
-			if b.Cy < len(b.Rows) && b.Cx < len(b.Rows[b.Cy]) {
-				b.Cx++
-				b.DesiredCx = b.Cx
-			}
+			e.moveRight(b)
 		case 'G':
 			b.Cy = len(b.Rows) - 1
 			b.ClampCursor()
 		case KeyPageUp:
-			_, termRows := e.render.Size()
-			b.Cy = max(0, b.Cy-termRows)
-			b.ClampCursor()
+			e.pageUp(b)
 		case KeyPageDown:
-			_, termRows := e.render.Size()
-			b.Cy = min(len(b.Rows)-1, b.Cy+termRows)
-			b.ClampCursor()
+			e.pageDown(b)
 		case KeyHome:
-			b.Cx = 0
-			b.DesiredCx = b.Cx
+			e.moveStart(b)
 		case KeyEnd:
-			b.Cx = len(b.Rows[b.Cy])
-			b.DesiredCx = b.Cx
+			e.moveEnd(b)
 		case KeyDelete, 'x':
 			b.DeleteChar(false)
 		}
@@ -138,39 +120,21 @@ func (e *Editor) ProcessKey(key Key) {
 		case '\t':
 			b.InsertChar('\t')
 		case KeyArrowLeft:
-			if b.Cx > 0 {
-				b.Cx--
-				b.DesiredCx = b.Cx
-			}
+			e.moveLeft(b)
 		case KeyArrowDown:
-			if b.Cy < len(b.Rows)-1 {
-				b.Cy++
-				b.ClampCursor()
-			}
+			e.moveDown(b)
 		case KeyArrowUp:
-			if b.Cy > 0 {
-				b.Cy--
-				b.ClampCursor()
-			}
+			e.moveUp(b)
 		case KeyArrowRight:
-			if b.Cy < len(b.Rows) && b.Cx < len(b.Rows[b.Cy]) {
-				b.Cx++
-				b.DesiredCx = b.Cx
-			}
+			e.moveRight(b)
 		case KeyPageUp:
-			_, termRows := e.render.Size()
-			b.Cy = max(0, b.Cy-termRows)
-			b.ClampCursor()
+			e.pageUp(b)
 		case KeyPageDown:
-			_, termRows := e.render.Size()
-			b.Cy = min(len(b.Rows)-1, b.Cy+termRows)
-			b.ClampCursor()
+			e.pageDown(b)
 		case KeyHome:
-			b.Cx = 0
-			b.DesiredCx = b.Cx
+			e.moveStart(b)
 		case KeyEnd:
-			b.Cx = len(b.Rows[b.Cy])
-			b.DesiredCx = b.Cx
+			e.moveEnd(b)
 		default:
 			if unicode.IsPrint(rune(key)) {
 				b.InsertChar(rune(key))
@@ -185,27 +149,73 @@ func (e *Editor) ProcessKey(key Key) {
 			b.DeleteSelection()
 			e.Mode = ModeNormal
 		case 'h', KeyArrowLeft:
-			if b.Cx > 0 {
-				b.Cx--
-				b.DesiredCx = b.Cx
-			}
+			e.moveLeft(b)
 		case 'j', KeyArrowDown:
-			if b.Cy < len(b.Rows)-1 {
-				b.Cy++
-				b.ClampCursor()
-			}
+			e.moveDown(b)
 		case 'k', KeyArrowUp:
-			if b.Cy > 0 {
-				b.Cy--
-				b.ClampCursor()
-			}
+			e.moveUp(b)
 		case 'l', KeyArrowRight:
-			if b.Cy < len(b.Rows) && b.Cx < len(b.Rows[b.Cy]) {
-				b.Cx++
-				b.DesiredCx = b.Cx
-			}
+			e.moveRight(b)
+		case KeyPageUp:
+			e.pageUp(b)
+		case KeyPageDown:
+			e.pageDown(b)
+		case KeyHome:
+			e.moveStart(b)
+		case KeyEnd:
+			e.moveEnd(b)
 		}
 	}
+}
+
+func (e *Editor) moveLeft(b *Buffer) {
+	if b.Cx > 0 {
+		b.Cx--
+		b.DesiredCx = b.Cx
+	}
+}
+
+func (e *Editor) moveDown(b *Buffer) {
+	if b.Cy < len(b.Rows)-1 {
+		b.Cy++
+		b.ClampCursor()
+	}
+}
+
+func (e *Editor) moveUp(b *Buffer) {
+	if b.Cy > 0 {
+		b.Cy--
+		b.ClampCursor()
+	}
+}
+
+func (e *Editor) moveRight(b *Buffer) {
+	if b.Cy < len(b.Rows) && b.Cx < len(b.Rows[b.Cy]) {
+		b.Cx++
+		b.DesiredCx = b.Cx
+	}
+}
+
+func (e *Editor) pageUp(b *Buffer) {
+	_, termRows := e.render.Size()
+	b.Cy = max(0, b.Cy-termRows)
+	b.ClampCursor()
+}
+
+func (e *Editor) pageDown(b *Buffer) {
+	_, termRows := e.render.Size()
+	b.Cy = min(len(b.Rows)-1, b.Cy+termRows)
+	b.ClampCursor()
+}
+
+func (e *Editor) moveStart(b *Buffer) {
+	b.Cx = 0
+	b.DesiredCx = b.Cx
+}
+
+func (e *Editor) moveEnd(b *Buffer) {
+	b.Cx = len(b.Rows[b.Cy])
+	b.DesiredCx = b.Cx
 }
 
 func (e *Editor) scroll() {
@@ -228,6 +238,8 @@ func (e *Editor) scroll() {
 			if char == '\t' {
 				b.Vx += (TabSize - 1) - (b.Vx % TabSize)
 				b.Vx++
+			} else if char == '\r' {
+				b.Vx += 2
 			} else {
 				b.Vx += runewidth.RuneWidth(char)
 			}
