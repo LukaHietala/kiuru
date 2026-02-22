@@ -33,6 +33,8 @@ func NewEditor(in InputReader, render Renderer, debug bool) *Editor {
 }
 
 func (e *Editor) AddBuffer(b *Buffer) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.Buffers = append(e.Buffers, b)
 	e.BufIndex = len(e.Buffers) - 1
 }
@@ -42,6 +44,27 @@ func (e *Editor) CurBuf() *Buffer {
 		return nil
 	}
 	return e.Buffers[e.BufIndex]
+}
+
+// TODO: MOVE TO SOMEWHERE ELSE, make public versions with locking
+func (e *Editor) nextBuf() {
+	if e.BufIndex >= len(e.Buffers)-1 {
+		return
+	}
+	e.BufIndex++
+	if b := e.CurBuf(); b != nil {
+		b.ClampCursor()
+	}
+}
+
+func (e *Editor) prevBuf() {
+	if e.BufIndex <= 0 {
+		return
+	}
+	e.BufIndex--
+	if b := e.CurBuf(); b != nil {
+		b.ClampCursor()
+	}
 }
 
 func (e *Editor) UpdateSize() {
@@ -77,6 +100,10 @@ func (e *Editor) ProcessKey(key Key) {
 	switch e.Mode {
 	case ModeNormal:
 		switch key {
+		case ']':
+			e.nextBuf()
+		case '[':
+			e.prevBuf()
 		case 'q':
 			e.Quit = true
 		case 'i':
