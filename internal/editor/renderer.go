@@ -6,6 +6,8 @@ import (
 	"io"
 	"runtime"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/lukahietala/kiuru/internal/ansi"
 	"github.com/mattn/go-runewidth"
@@ -51,7 +53,6 @@ func getGutterWidth(b *Buffer) int {
 }
 
 func (r *TermRenderer) Render(b *Buffer, mode Mode, debug bool) {
-	// TODO: Handle control seqs, non-printable, broken utf and binary
 	start := time.Now()
 	r.buf.Reset()
 	r.buf.WriteString(ansi.HideCursor + ansi.CursorHome)
@@ -78,33 +79,53 @@ func (r *TermRenderer) Render(b *Buffer, mode Mode, debug bool) {
 			line := b.Rows[bufRow]
 			rx := 0
 			for i, c := range line {
-				// Get real width since some chars are 0-2 cols wide
-				w := runewidth.RuneWidth(c)
+				var charWidth int
+				var renderStr string
+				var isDim bool
+
 				if c == '\t' {
-					w = TabSize - (rx % TabSize)
-				} else if c == '\r' {
-					w = 2 // ^M
+					charWidth = TabSize - (rx % TabSize)
+					renderStr = fmt.Sprintf("%*s", charWidth, "")
+				} else if unicode.IsControl(c) {
+					charWidth = 2
+					ctrlChar := c ^ 64
+					renderStr = "^" + string(ctrlChar)
+					isDim = true
+				} else if c == utf8.RuneError {
+					renderStr = "U+FFFD"
+					charWidth = len(renderStr)
+					isDim = true
+				} else if !unicode.IsGraphic(c) {
+					renderStr = fmt.Sprintf("U+%04X", c)
+					charWidth = len(renderStr)
+					isDim = true
+				} else {
+					charWidth = runewidth.RuneWidth(c)
+					renderStr = string(c)
 				}
-				if rx-b.ColOff >= textWidth || (rx-b.ColOff)+w > textWidth {
+
+				if rx-b.ColOff >= textWidth || (rx-b.ColOff)+charWidth > textWidth {
 					break
 				}
+
 				if rx >= b.ColOff {
 					isSelected := mode == ModeVisual && b.Selection.Contains(i, bufRow, b.Cx, b.Cy)
+
 					if isSelected {
 						r.buf.WriteString(ansi.ReverseVideo)
 					}
-					if c == '\t' {
-						fmt.Fprintf(&r.buf, "%*s", w, "")
-					} else if c == '\r' {
-						r.buf.WriteString(ansi.DimMode + "^M" + ansi.ResetFormat)
-					} else {
-						r.buf.WriteRune(c)
+
+					if isDim {
+						r.buf.WriteString(ansi.DimMode)
 					}
-					if isSelected {
+
+					r.buf.WriteString(renderStr)
+
+					if isDim || isSelected {
 						r.buf.WriteString(ansi.ResetFormat)
 					}
 				}
-				rx += w
+				rx += charWidth
 			}
 		}
 
@@ -137,17 +158,12 @@ func (r *TermRenderer) renderStatusBar(b *Buffer, mode Mode, debug bool, start t
 		modeStr = "visual"
 	}
 
-	formatStr := "[UNIX]"
-	if b.Format == FormatDOS {
-		formatStr = "[DOS]"
-	}
-
 	readOnlyStr := ""
 	if b.ReadOnly {
 		readOnlyStr = "(RO)"
 	}
 
-	statusLeft := fmt.Sprintf("%s %s - (%d,%d) (%s) %s", readOnlyStr, b.Name, b.Cy+1, b.Cx+1, modeStr, formatStr)
+	statusLeft := fmt.Sprintf("%s %s - (%d,%d) (%s)", readOnlyStr, b.Name, b.Cy+1, b.Cx+1, modeStr)
 
 	statusRight := ""
 	if debug {
