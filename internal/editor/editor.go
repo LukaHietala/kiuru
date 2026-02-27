@@ -88,6 +88,10 @@ func (e *Editor) Draw() {
 	e.render.Render(e.CurBuf(), e.Mode, e.Debug)
 }
 
+func ctrlKey(key byte) Key {
+	return Key(key & 0x1f)
+}
+
 func (e *Editor) ProcessKey(key Key) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -104,7 +108,7 @@ func (e *Editor) ProcessKey(key Key) {
 			e.nextBuf()
 		case '[':
 			e.prevBuf()
-		case 'q':
+		case ctrlKey('q'):
 			e.Quit = true
 		case 'i':
 			e.Mode = ModeInsert
