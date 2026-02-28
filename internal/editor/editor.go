@@ -110,6 +110,9 @@ func (e *Editor) ProcessKey(key Key) {
 			e.prevBuf()
 		case ctrlKey('q'):
 			e.Quit = true
+		case ctrlKey('s'):
+			// TODO: handle errors
+			_ = b.Save()
 		case 'i':
 			e.Mode = ModeInsert
 		case 'v':
@@ -140,6 +143,11 @@ func (e *Editor) ProcessKey(key Key) {
 		}
 	case ModeInsert:
 		switch key {
+		case ctrlKey('q'):
+			e.Quit = true
+		case ctrlKey('s'):
+			// TODO: handle errors
+			_ = b.Save()
 		case 27: // Escape
 			e.Mode = ModeNormal
 		case 13: // Enter
@@ -173,6 +181,10 @@ func (e *Editor) ProcessKey(key Key) {
 		}
 	case ModeVisual:
 		switch key {
+		case ctrlKey('q'):
+			e.Quit = true
+		case ctrlKey('s'):
+			_ = b.Save()
 		case 27, 'v':
 			e.Mode = ModeNormal
 			b.Selection.Clear()

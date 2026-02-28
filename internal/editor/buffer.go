@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -15,6 +16,7 @@ type Buffer struct {
 	RowOff    int
 	ColOff    int
 	Name      string
+	AbsPath   string
 	Dirty     bool
 	Scratch   bool
 	Listed    bool
@@ -24,10 +26,20 @@ type Buffer struct {
 }
 
 // Creates a new buffer
-// TODO: Move file logic
 func NewBuffer(path string, scratch, listed bool) (*Buffer, error) {
+	// Try to resolve abs path
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		// TODO!
+	}
+
+	if path == "" {
+		absPath = ""
+	}
+
 	b := &Buffer{
 		Name:    path,
+		AbsPath: absPath,
 		Scratch: scratch,
 		Listed:  listed,
 		Rows:    [][]rune{},
@@ -46,10 +58,10 @@ func NewBuffer(path string, scratch, listed bool) (*Buffer, error) {
 		return b, nil
 	}
 
-	fileInfo, err := os.Stat(path)
+	fileInfo, err := os.Stat(absPath)
 	if err == nil {
 		// Can open in write mode?
-		f, err := os.OpenFile(path, os.O_WRONLY, 0666)
+		f, err := os.OpenFile(absPath, os.O_WRONLY, 0666)
 		if err != nil {
 			if errors.Is(err, os.ErrPermission) {
 				b.ReadOnly = true
@@ -64,7 +76,7 @@ func NewBuffer(path string, scratch, listed bool) (*Buffer, error) {
 		}
 	}
 
-	file, err := os.Open(path)
+	file, err := os.Open(absPath)
 	if err != nil {
 		b.Rows = append(b.Rows, []rune{})
 		return b, err
@@ -73,8 +85,6 @@ func NewBuffer(path string, scratch, listed bool) (*Buffer, error) {
 
 	reader := bufio.NewReader(file)
 	var rawLines []string
-	// Try to smartly detect line endings
-	// TODO: Change?
 	dosCount, unixCount := 0, 0
 
 	for {
@@ -110,4 +120,47 @@ func NewBuffer(path string, scratch, listed bool) (*Buffer, error) {
 	}
 
 	return b, nil
+}
+
+func (b *Buffer) Save() error {
+	if b.Scratch || b.ReadOnly || b.AbsPath == "" {
+		return errors.New("cannot save scratch, readonly, or unnamed buffer")
+	}
+
+	// TODO: Ask nicely before creating new file
+	file, err := os.Create(b.AbsPath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	writer := bufio.NewWriter(file)
+
+	lineEnd := "\n"
+	if b.Format == FormatDOS {
+		lineEnd = "\r\n"
+	}
+
+	for i, row := range b.Rows {
+		_, err := writer.WriteString(string(row))
+		if err != nil {
+			return err
+		}
+
+		// TODO: if last is empty add newline
+		if i < len(b.Rows)-1 || len(row) > 0 {
+			_, err = writer.WriteString(lineEnd)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	if err := writer.Flush(); err != nil {
+		return err
+	}
+
+	// TODO: Make actual hash system to be sure they are different
+	b.Dirty = false
+	return nil
 }
