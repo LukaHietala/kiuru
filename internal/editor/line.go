@@ -117,3 +117,25 @@ func (b *Buffer) ClampCursor() {
 	}
 	b.Cx = min(b.DesiredCx, rowLen)
 }
+
+func (b *Buffer) DeleteRows(start, count int) {
+	if len(b.Rows) == 0 || start >= len(b.Rows) {
+		return
+	}
+
+	end := min(start+count, len(b.Rows))
+	b.Rows = slices.Delete(b.Rows, start, end)
+
+	// Keep at least one empty row
+	if len(b.Rows) == 0 {
+		b.Rows = [][]rune{{}}
+	}
+
+	// Adjust cursor
+	if b.Cy >= len(b.Rows) {
+		b.Cy = len(b.Rows) - 1
+	}
+	b.Cx = 0
+	b.DesiredCx = 0
+	b.Dirty = true
+}

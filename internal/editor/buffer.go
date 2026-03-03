@@ -8,6 +8,14 @@ import (
 	"strings"
 )
 
+type FileFormat int
+
+const (
+	FormatAuto FileFormat = iota
+	FormatUnix            // LF
+	FormatDOS             // CRLF
+)
+
 type Buffer struct {
 	Rows      [][]rune
 	Cx, Cy    int

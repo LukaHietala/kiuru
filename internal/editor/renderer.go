@@ -21,13 +21,11 @@ type Renderer interface {
 }
 
 type TermRenderer struct {
-	// Usually stdout
-	out  io.Writer
+	out  io.Writer // Usually stdout
 	fd   int
 	cols int
 	rows int
-	// Render buffer, will be flused once ready
-	buf bytes.Buffer
+	buf  bytes.Buffer // Render buffer, flushed once ready
 }
 
 func NewTermRenderer(out io.Writer, fd int) *TermRenderer {
@@ -67,66 +65,11 @@ func (r *TermRenderer) Render(b *Buffer, mode Mode, debug bool) {
 	for y := 0; y < r.rows; y++ {
 		bufRow := y + b.RowOff
 
-		if bufRow < len(b.Rows) {
-			r.buf.WriteString(ansi.DimMode)
-			fmt.Fprintf(&r.buf, "%*d ", gutterWidth-1, bufRow+1)
-			r.buf.WriteString(ansi.ResetFormat)
-		}
-
 		if bufRow >= len(b.Rows) {
-			r.buf.WriteString(ansi.DimMode + "~" + ansi.ResetFormat)
+			r.drawEmptyLine()
 		} else {
-			line := b.Rows[bufRow]
-			rx := 0
-			for i, c := range line {
-				var charWidth int
-				var renderStr string
-				var isDim bool
-
-				if c == '\t' {
-					charWidth = TabSize - (rx % TabSize)
-					renderStr = fmt.Sprintf("%*s", charWidth, "")
-				} else if unicode.IsControl(c) {
-					charWidth = 2
-					ctrlChar := c ^ 64
-					renderStr = "^" + string(ctrlChar)
-					isDim = true
-				} else if c == utf8.RuneError {
-					renderStr = "U+FFFD"
-					charWidth = len(renderStr)
-					isDim = true
-				} else if !unicode.IsGraphic(c) {
-					renderStr = fmt.Sprintf("U+%04X", c)
-					charWidth = len(renderStr)
-					isDim = true
-				} else {
-					charWidth = runewidth.RuneWidth(c)
-					renderStr = string(c)
-				}
-
-				if rx-b.ColOff >= textWidth || (rx-b.ColOff)+charWidth > textWidth {
-					break
-				}
-
-				if rx >= b.ColOff {
-					isSelected := mode == ModeVisual && b.Selection.Contains(i, bufRow, b.Cx, b.Cy)
-
-					if isSelected {
-						r.buf.WriteString(ansi.ReverseVideo)
-					}
-
-					if isDim {
-						r.buf.WriteString(ansi.DimMode)
-					}
-
-					r.buf.WriteString(renderStr)
-
-					if isDim || isSelected {
-						r.buf.WriteString(ansi.ResetFormat)
-					}
-				}
-				rx += charWidth
-			}
+			r.drawGutter(gutterWidth, bufRow)
+			r.drawLine(b, bufRow, textWidth, mode)
 		}
 
 		r.buf.WriteString(ansi.ClearLine)
@@ -147,6 +90,82 @@ func (r *TermRenderer) Render(b *Buffer, mode Mode, debug bool) {
 	r.out.Write(r.buf.Bytes())
 }
 
+func (r *TermRenderer) drawGutter(width, row int) {
+	r.buf.WriteString(ansi.DimMode)
+	fmt.Fprintf(&r.buf, "%*d ", width-1, row+1)
+	r.buf.WriteString(ansi.ResetFormat)
+}
+
+func (r *TermRenderer) drawEmptyLine() {
+	r.buf.WriteString(ansi.DimMode + "~" + ansi.ResetFormat)
+}
+
+func (r *TermRenderer) drawLine(b *Buffer, bufRow, textWidth int, mode Mode) {
+	line := b.Rows[bufRow]
+	rx := 0
+
+	for i, c := range line {
+		renderStr, charWidth, isDim := formatRune(c, rx)
+
+		if rx-b.ColOff >= textWidth || (rx-b.ColOff)+charWidth > textWidth {
+			break
+		}
+
+		if rx >= b.ColOff {
+			isSelected := mode == ModeVisual && b.Selection.Contains(i, bufRow, b.Cx, b.Cy)
+
+			if isSelected {
+				r.buf.WriteString(ansi.ReverseVideo)
+			}
+			if isDim {
+				r.buf.WriteString(ansi.DimMode)
+			}
+
+			r.buf.WriteString(renderStr)
+
+			if isDim || isSelected {
+				r.buf.WriteString(ansi.ResetFormat)
+			}
+		}
+		rx += charWidth
+	}
+}
+
+// Determine how should a char be rendered
+func formatRune(c rune, rx int) (renderStr string, charWidth int, isDim bool) {
+	// Tabs
+	if c == '\t' {
+		charWidth = TabSize - (rx % TabSize)
+		return fmt.Sprintf("%*s", charWidth, ""), charWidth, false
+	}
+
+	if c < 32 || c == 127 {
+		// Magically maps \f to L, \r to M, DEL to ?... etc (caret notation)
+		// Similar to vim's transchar_nonprint()
+		return "^" + string(byte(c)+'@'), 2, true
+	}
+
+	// Invalid utf
+	if c == utf8.RuneError {
+		return "U+FFFD", 6, true
+	}
+
+	// TODO: Messy, try to find a way to determine if binary and use hex mode like nvim
+	if !unicode.IsGraphic(c) {
+		if c <= 0xFF {
+			// Single byte (ascii)
+			renderStr = fmt.Sprintf("<%02X>", c)
+		} else {
+			// Over one byte (unicode)
+			renderStr = fmt.Sprintf("<%04X>", c)
+		}
+		return renderStr, len(renderStr), true
+	}
+
+	// Normal characters
+	return string(c), runewidth.RuneWidth(c), false
+}
+
 func (r *TermRenderer) renderStatusBar(b *Buffer, mode Mode, debug bool, start time.Time) {
 	r.buf.WriteString(ansi.MoveCursor(r.rows+1, 1) + ansi.ReverseVideo)
 
@@ -160,10 +179,10 @@ func (r *TermRenderer) renderStatusBar(b *Buffer, mode Mode, debug bool, start t
 
 	readOnlyStr := ""
 	if b.ReadOnly {
-		readOnlyStr = "(RO)"
+		readOnlyStr = "(RO) "
 	}
 
-	statusLeft := fmt.Sprintf("%s %s - (%d,%d) (%s)", readOnlyStr, b.Name, b.Cy+1, b.Cx+1, modeStr)
+	statusLeft := fmt.Sprintf("%s%s - (%d,%d) (%s)", readOnlyStr, b.Name, b.Cy+1, b.Cx+1, modeStr)
 
 	statusRight := ""
 	if debug {
