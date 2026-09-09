@@ -94,7 +94,7 @@ func main() {
 
 			s.Clear()
 			for i := 0; i < b.LineCount(); i++ {
-				s.PutStr(0, i, string(b.LineBytes(i)))
+				s.PutStr(0, i, expandTabs(b.LineBytes(i)))
 			}
 			cx, cy := b.Cursor()
 			s.ShowCursor(cx, cy)
@@ -135,6 +135,10 @@ func (e *Editor) handleEvent(ev tcell.Event, b *buffer.Buffer, isPasting bool) b
 			return isPasting
 		}
 
+		if ev.Key() == tcell.KeyTab {
+			b.InsertString("\t")
+		}
+
 		if ev.Key() == tcell.KeyUp {
 			b.MoveUp()
 		}
@@ -161,4 +165,23 @@ func (e *Editor) handleEvent(ev tcell.Event, b *buffer.Buffer, isPasting bool) b
 	}
 
 	return isPasting
+}
+
+// TODO: to rendering
+func expandTabs(line []byte) string {
+	var out []rune
+	col := 0
+	for _, r := range string(line) {
+		if r == '\t' {
+			spaces := 4 - (col % 4)
+			for range spaces {
+				out = append(out, ' ')
+				col++
+			}
+		} else {
+			out = append(out, r)
+			col++
+		}
+	}
+	return string(out)
 }

@@ -57,11 +57,17 @@ func VisualWidth(line []byte, offset int) int {
 	width := 0
 	for i := 0; i < offset; {
 		r, size := utf8.DecodeRune(line[i:offset])
-		width += runewidth.RuneWidth(r)
+		if r == '\t' {
+			// TODO: to global
+			spaces := 4 - (width % 4)
+			width += spaces
+		} else {
+			width += runewidth.RuneWidth(r)
+		}
 		i += size
 	}
 	return width
 }
 
-// TODO: Visual to byte  offset and tabs :((((((
+// TODO: Visual to byte  offset :((((((
 //aksldjfa flk
