@@ -5,15 +5,18 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/gdamore/tcell/v3"
+	"github.com/lukahietala/kiuru/buffer"
 )
 
 type Editor struct {
-	events chan tcell.Event
-	screen tcell.Screen
-	quit   chan struct{}
+	events   chan tcell.Event
+	screen   tcell.Screen
+	quit     chan struct{}
+	quitOnce sync.Once
 }
 
 func NewEditor() *Editor {
@@ -24,8 +27,9 @@ func NewEditor() *Editor {
 }
 
 func (e *Editor) Quit() {
-	// TODO: max once
-	close(e.quit)
+	e.quitOnce.Do(func() {
+		close(e.quit)
+	})
 }
 
 func main() {
@@ -53,7 +57,7 @@ func main() {
 	}()
 
 	e := NewEditor()
-	b := NewBuffer()
+	b := buffer.NewBuffer()
 
 	e.screen = s
 
@@ -77,8 +81,7 @@ func main() {
 			case ev := <-e.events:
 				isPasting = e.handleEvent(ev, b, isPasting)
 
-				// If multiple events came in. Paste for example
-				// Go through them before rendering
+				// bloat, TODO: Make pasting actually faster
 				for drain := true; drain; {
 					select {
 					case ev2 := <-e.events:
@@ -89,10 +92,12 @@ func main() {
 				}
 			}
 
-			for i, line := range b.Lines {
-				s.PutStr(0, i, string(line))
+			s.Clear()
+			for i := 0; i < b.LineCount(); i++ {
+				s.PutStr(0, i, string(b.LineBytes(i)))
 			}
-			s.ShowCursor(b.CursorX, b.CursorY)
+			cx, cy := b.Cursor()
+			s.ShowCursor(cx, cy)
 			s.Show()
 		}
 	}()
@@ -102,13 +107,12 @@ func main() {
 	os.Exit(0)
 }
 
-func (e *Editor) handleEvent(ev tcell.Event, b *Buffer, isPasting bool) bool {
+func (e *Editor) handleEvent(ev tcell.Event, b *buffer.Buffer, isPasting bool) bool {
 	switch ev := ev.(type) {
 	case *tcell.EventResize:
 		e.screen.Sync()
 
 	case *tcell.EventPaste:
-		// Bracketed paste
 		if ev.Start() {
 			isPasting = true
 		} else if ev.End() {
@@ -126,14 +130,32 @@ func (e *Editor) handleEvent(ev tcell.Event, b *Buffer, isPasting bool) bool {
 			return isPasting
 		}
 
+		if ev.Key() == tcell.KeyBackspace {
+			b.DeleteBack()
+			return isPasting
+		}
+
+		if ev.Key() == tcell.KeyUp {
+			b.MoveUp()
+		}
+		if ev.Key() == tcell.KeyDown {
+			b.MoveDown()
+		}
+		if ev.Key() == tcell.KeyLeft {
+			b.MoveLeft()
+		}
+		if ev.Key() == tcell.KeyRight {
+			b.MoveRight()
+		}
+		// ...Switch cases are soy
+
 		if ev.Key() == tcell.KeyRune {
 			str := ev.Str()
-			// TODO: Now it inserts twice BECAUSE OF WINDOWS \r\n
-			// Too lazy to handle it now
+			// TODO: dublication on WInDOWs rotta
 			if str == "\n" || str == "\r" {
 				b.InsertNewline()
 			} else {
-				b.InsertChar([]rune(str))
+				b.InsertString(str)
 			}
 		}
 	}
