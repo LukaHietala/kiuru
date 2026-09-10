@@ -82,6 +82,10 @@ func main() {
 				isPasting = e.handleEvent(ev, b, isPasting)
 
 				// bloat, TODO: Make pasting actually faster
+				// Tcell desided to remove syncronous polling so
+				// go channel overhead is forced. Maybe raw TTY later.
+				// TODO: Maybe something like: TTY -> Pasting -> To EventQ ->
+				// Other events?
 				for drain := true; drain; {
 					select {
 					case ev2 := <-e.events:
@@ -122,17 +126,18 @@ func (e *Editor) handleEvent(ev tcell.Event, b *buffer.Buffer, isPasting bool) b
 	case *tcell.EventKey:
 		if ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyCtrlC {
 			e.Quit()
-			return isPasting
 		}
 
 		if ev.Key() == tcell.KeyEnter || ev.Key() == tcell.KeyCtrlJ {
 			b.InsertNewline()
-			return isPasting
 		}
 
 		if ev.Key() == tcell.KeyBackspace {
 			b.DeleteBack()
-			return isPasting
+		}
+
+		if ev.Key() == tcell.KeyDelete {
+			b.DeleteForward()
 		}
 
 		if ev.Key() == tcell.KeyTab {

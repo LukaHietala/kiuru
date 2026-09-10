@@ -4,6 +4,8 @@ import (
 	"slices"
 )
 
+// TODO: Guard everything in the most paranoid way possible
+
 func (b *Buffer) InsertString(s string) {
 	if len(s) == 0 {
 		return
@@ -33,5 +35,16 @@ func (b *Buffer) DeleteBack() {
 		b.lines = slices.Delete(b.lines, b.cursorY, b.cursorY+1)
 		b.cursorY--
 		b.cursorX = prevLen
+	}
+}
+
+func (b *Buffer) DeleteForward() {
+	line := b.lines[b.cursorY]
+	if b.cursorX < len(line) {
+		size := NextRuneSize(line, b.cursorX)
+		b.lines[b.cursorY] = slices.Delete(line, b.cursorX, b.cursorX+size)
+	} else if b.cursorY+1 < len(b.lines) {
+		b.lines[b.cursorY] = append(b.lines[b.cursorY], b.lines[b.cursorY+1]...)
+		b.lines = slices.Delete(b.lines, b.cursorY+1, b.cursorY+2)
 	}
 }
