@@ -3,9 +3,11 @@ package buffer
 import "bytes"
 
 type Buffer struct {
-	lines   [][]byte
-	cursorX int // byte offset!
-	cursorY int
+	// TODO: Maybe rope later?
+	lines          [][]byte
+	cursorX        int // byte offset!
+	cursorY        int
+	rowOff, colOff int
 }
 
 func NewBuffer() *Buffer {
@@ -29,6 +31,16 @@ func (b *Buffer) LineBytes(y int) []byte {
 // LineCount returns the length of lines slice in a buffer.
 func (b *Buffer) LineCount() int {
 	return len(b.lines)
+}
+
+// Offset returns row and col offsets (TODO): To window
+func (b *Buffer) Offset() (int, int) {
+	return b.rowOff, b.colOff
+}
+
+func (b *Buffer) SetOffset(rowOff, colOff int) {
+	b.colOff = colOff
+	b.rowOff = rowOff
 }
 
 // Cursor returns the cursor's x and y pos accounting for characters visual width.

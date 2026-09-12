@@ -96,12 +96,34 @@ func main() {
 				}
 			}
 
-			s.Clear()
-			for i := 0; i < b.LineCount(); i++ {
-				s.PutStr(0, i, expandTabs(b.LineBytes(i)))
+			if isPasting {
+				continue
 			}
+
+			w, h := s.Size()
 			cx, cy := b.Cursor()
-			s.ShowCursor(cx, cy)
+			rowOff, colOff := b.Offset()
+
+			// Clamp offsets so cursor stays on the screen
+			rowOff = max(cy-h+1, min(rowOff, cy))
+			colOff = max(cx-w+1, min(colOff, cx))
+			b.SetOffset(rowOff, colOff)
+
+			// Render only visible lines
+			s.Clear()
+			for y := range h {
+				line := y + rowOff
+				if line >= b.LineCount() {
+					break
+				}
+
+				runes := []rune(expandTabs(b.LineBytes(line)))
+				if colOff < len(runes) {
+					s.PutStr(0, y, string(runes[colOff:]))
+				}
+			}
+
+			s.ShowCursor(cx-colOff, cy-rowOff)
 			s.Show()
 		}
 	}()
@@ -114,6 +136,8 @@ func main() {
 func (e *Editor) handleEvent(ev tcell.Event, b *buffer.Buffer, isPasting bool) bool {
 	switch ev := ev.(type) {
 	case *tcell.EventResize:
+		w, h := ev.Size()
+		log.Printf("%d, %d", w, h)
 		e.screen.Sync()
 
 	case *tcell.EventPaste:
