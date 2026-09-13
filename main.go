@@ -2,13 +2,16 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 
 	"github.com/gdamore/tcell/v3"
+	"github.com/gdamore/tcell/v3/color"
 	"github.com/lukahietala/kiuru/buffer"
 )
 
@@ -33,6 +36,12 @@ func (e *Editor) Quit() {
 }
 
 func main() {
+	// TEMP
+	conn, err := net.Dial("tcp", "127.0.0.1:5000")
+	if err == nil {
+		log.SetOutput(conn)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -105,7 +114,7 @@ func main() {
 			rowOff, colOff := b.Offset()
 
 			// Clamp offsets so cursor stays on the screen
-			rowOff = max(cy-h+1, min(rowOff, cy))
+			rowOff = max(cy-h+3, min(rowOff, cy)) // no +3 to give space for status, and cmd buf
 			colOff = max(cx-w+1, min(colOff, cx))
 			b.SetOffset(rowOff, colOff)
 
@@ -122,6 +131,27 @@ func main() {
 					s.PutStr(0, y, string(runes[colOff:]))
 				}
 			}
+
+			// TODO: Very dirty, move away
+			// TODO: Vim and emacs have lines and cols one indexed, so maybe at
+			// least change the display val to it???
+			cxb, _ := b.CursorBytes()
+			statusStyle := tcell.StyleDefault.Foreground(color.Black).Background(color.White)
+
+			left := " Kiuru"
+
+			// Only col should have differing byte and rune offsets
+			colStr := fmt.Sprintf("%d", cx)
+			if cxb != cx {
+				colStr = fmt.Sprintf("%d-%d", cxb, cx)
+			}
+
+			lineStr := fmt.Sprintf("%d", cy)
+			right := fmt.Sprintf("L: %s C: %s ", lineStr, colStr)
+
+			middleW := w - len(left) - len(right)
+			fullStr := fmt.Sprintf("%s%-*s%s", left, middleW, "", right)
+			s.PutStrStyled(0, h-2, fullStr, statusStyle)
 
 			s.ShowCursor(cx-colOff, cy-rowOff)
 			s.Show()

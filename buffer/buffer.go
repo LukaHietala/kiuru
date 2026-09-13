@@ -43,7 +43,14 @@ func (b *Buffer) SetOffset(rowOff, colOff int) {
 	b.rowOff = rowOff
 }
 
-// Cursor returns the cursor's x and y pos accounting for characters visual width.
+// Cursor returns the cursor's x and y pos (as rune index!) accounting for characters visual
+// width
 func (b *Buffer) Cursor() (int, int) {
 	return VisualWidth(b.lines[b.cursorY], b.cursorX), b.cursorY
+}
+
+// CursorBytes returns real byte offsets (x, y)
+func (b *Buffer) CursorBytes() (int, int) {
+	return b.cursorX, b.cursorY
+
 }
