@@ -182,6 +182,7 @@ func validatePath(path string) (string, bool, error) {
 	}
 
 	if info.IsDir() {
+		// TODO: Open file explorer
 		return "", false, fmt.Errorf("'%s' is a directory", path)
 	}
 

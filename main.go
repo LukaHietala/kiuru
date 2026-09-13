@@ -126,40 +126,52 @@ func main() {
 			cx, cy := b.Cursor()
 			rowOff, colOff := b.Offset()
 
-			// Clamp offsets so cursor stays on the screen
-			rowOff = max(cy-h+3, min(rowOff, cy)) // no +3 to give space for status, and cmd buf
-			colOff = max(cx-w+1, min(colOff, cx))
+			gutterW := len(fmt.Sprintf("%d", b.LineCount()))
+			contentW := w - gutterW - 1
+
+			// Clamp offsets so cursor stays on the screen, accounting for gutter width
+			rowOff = max(cy-h+3, min(rowOff, cy))
+			if contentW > 0 {
+				colOff = max(cx-contentW+1, min(colOff, cx))
+			} else {
+				colOff = 0
+			}
 			b.SetOffset(rowOff, colOff)
 
 			// Render only visible lines
 			s.Clear()
-			for y := range h {
+			for y := range h - 2 {
 				line := y + rowOff
 				if line >= b.LineCount() {
-					break
+					s.PutStrStyled(0, y, "~", tcell.StyleDefault.Foreground(color.DimGray))
+					continue
 				}
+
+				numStyle := tcell.StyleDefault.Foreground(color.DimGray)
+				if cy == line {
+					numStyle = numStyle.Foreground(color.LightPink)
+				}
+				s.PutStrStyled(0, y, fmt.Sprintf("%*d ", gutterW, line+1), numStyle)
 
 				runes := []rune(expandTabs(b.LineBytes(line)))
 				if colOff < len(runes) {
-					s.PutStr(0, y, string(runes[colOff:]))
+					s.PutStr(gutterW+1, y, string(runes[colOff:]))
 				}
 			}
 
 			// TODO: Very dirty, move away
-			// TODO: Vim and emacs have lines and cols one indexed, so maybe at
-			// least change the display val to it???
 			cxb, _ := b.CursorBytes()
 			statusStyle := tcell.StyleDefault.Foreground(color.Black).Background(color.White)
 
 			left := " " + b.Name()
 
 			// Only col should have differing byte and rune offsets
-			colStr := fmt.Sprintf("%d", cx)
+			colStr := fmt.Sprintf("%d", cx+1)
 			if cxb != cx {
-				colStr = fmt.Sprintf("%d-%d", cxb, cx)
+				colStr = fmt.Sprintf("%d-%d", cxb+1, cx+1)
 			}
 
-			lineStr := fmt.Sprintf("%d", cy)
+			lineStr := fmt.Sprintf("%d", cy+1)
 			right := fmt.Sprintf("L: %s C: %s ", lineStr, colStr)
 
 			middleW := w - len(left) - len(right)
@@ -167,7 +179,7 @@ func main() {
 			s.PutStrStyled(0, h-2, fullStr, statusStyle)
 			s.PutStrStyled(0, h-1, fmt.Sprintf("%-*s", w, ""), tcell.StyleDefault.Background(color.Black))
 
-			s.ShowCursor(cx-colOff, cy-rowOff)
+			s.ShowCursor(gutterW+1+cx-colOff, cy-rowOff)
 			s.Show()
 		}
 	}()
