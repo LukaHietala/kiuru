@@ -67,6 +67,7 @@ func main() {
 	}()
 
 	e := NewEditor()
+	ml := NewMessageLog()
 	flag.Parse()
 	args := flag.Args()
 
@@ -76,10 +77,12 @@ func main() {
 		path = args[0]
 	}
 
-	// TODO: error is the message
-	b, err := buffer.NewBuffer(path, false, false)
+	b, err := buffer.OpenFile(path)
 	if err != nil {
-		log.Println(err)
+		ml.Post(err.Error())
+		b = buffer.New()
+		b.SetPath(path)
+		b.EnableFlag(buffer.FlagReadonly)
 	}
 	e.screen = s
 
@@ -164,6 +167,9 @@ func main() {
 			statusStyle := tcell.StyleDefault.Foreground(color.Black).Background(color.White)
 
 			left := " " + b.Name()
+			if flags := b.Flags().String(); flags != "" {
+				left = fmt.Sprintf(" %s (%s)", b.Name(), flags)
+			}
 
 			// Only col should have differing byte and rune offsets
 			colStr := fmt.Sprintf("%d", cx+1)
@@ -178,6 +184,7 @@ func main() {
 			fullStr := fmt.Sprintf("%s%-*s%s", left, middleW, "", right)
 			s.PutStrStyled(0, h-2, fullStr, statusStyle)
 			s.PutStrStyled(0, h-1, fmt.Sprintf("%-*s", w, ""), tcell.StyleDefault.Background(color.Black))
+			s.PutStr(0, h-1, fmt.Sprintf("%-*s", w, ml.Current()))
 
 			s.ShowCursor(gutterW+1+cx-colOff, cy-rowOff)
 			s.Show()
@@ -204,7 +211,7 @@ func (e *Editor) handleEvent(ev tcell.Event, b *buffer.Buffer, isPasting bool) b
 		}
 
 	case *tcell.EventKey:
-		if ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyCtrlC {
+		if ev.Key() == tcell.KeyCtrlQ {
 			e.Quit()
 		}
 

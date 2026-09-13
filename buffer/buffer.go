@@ -2,9 +2,11 @@ package buffer
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type BufferFlag uint8
@@ -13,7 +15,7 @@ type BufferFlag uint8
 const (
 	FlagReadonly BufferFlag = 1 << iota
 	FlagScratch
-	FlagModifiable
+	FlagNew
 )
 
 type Buffer struct {
@@ -29,43 +31,37 @@ type Buffer struct {
 	flags BufferFlag
 }
 
-// TODO: modifiable
-func NewBuffer(path string, scratch bool, readonly bool) (*Buffer, error) {
-	buf := &Buffer{
+func New() *Buffer {
+	return &Buffer{
 		lines: [][]byte{{}},
-		flags: FlagModifiable,
 	}
+}
 
-	if scratch {
-		buf.MarkScratch()
-		return buf, nil
-	}
+func NewScratch() *Buffer {
+	buf := New()
+	buf.MarkScratch()
+	return buf
+}
 
+func OpenFile(path string) (*Buffer, error) {
 	if path == "" {
-		if readonly {
-			buf.EnableFlag(FlagReadonly)
-		}
-		return buf, nil
+		return New(), nil
 	}
 
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		absPath = path
-	}
-	buf.path = absPath
-	buf.name = filepath.Base(absPath)
-
-	if readonly {
-		buf.EnableFlag(FlagReadonly)
-	}
+	buf := New()
 
 	absPath, isReadOnly, err := validatePath(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
+			if abs, absErr := filepath.Abs(path); absErr == nil {
+				path = abs
+			}
+			buf.path = path
+			buf.name = filepath.Base(path)
+			buf.EnableFlag(FlagNew)
 			return buf, nil
 		}
-		buf.DisableFlag(FlagModifiable)
-		return buf, err
+		return nil, err
 	}
 
 	buf.path = absPath
@@ -80,13 +76,13 @@ func NewBuffer(path string, scratch bool, readonly bool) (*Buffer, error) {
 	}
 
 	// TODO: keep track if dos
-	content = bytes.ReplaceAll(content, []byte("\r"), []byte(""))
+	content = bytes.ReplaceAll(content, []byte("\r\n"), []byte("\n"))
 	buf.lines = bytes.Split(content, []byte("\n"))
 
 	return buf, nil
 }
 
-// Returns buffer name
+// Name returns the buffer name.
 func (b *Buffer) Name() string {
 	if b.HasFlag(FlagScratch) {
 		return "Scratch"
@@ -97,8 +93,8 @@ func (b *Buffer) Name() string {
 	return b.name
 }
 
-// Bytes returns a slice of bytes of all lines in a buffer sperated by "\n".
-// TODO: If dos then with /r/n
+// Bytes returns a slice of bytes of all lines in a buffer separated by "\n".
+// TODO: If dos then with \r\n
 func (b *Buffer) Bytes() []byte {
 	return bytes.Join(b.lines, []byte("\n"))
 }
@@ -109,7 +105,7 @@ func (b *Buffer) LineBytes(y int) []byte {
 	if y < 0 || y >= len(b.lines) {
 		return nil
 	}
-	return b.lines[y]
+	return bytes.Clone(b.lines[y])
 }
 
 // LineCount returns the length of lines slice in a buffer.
@@ -117,14 +113,22 @@ func (b *Buffer) LineCount() int {
 	return len(b.lines)
 }
 
-// Offset returns row and col offsets (TODO): To window
-func (b *Buffer) Offset() (int, int) {
-	return b.rowOff, b.colOff
+// SetPath updates the buffer's absolute path and name.
+func (b *Buffer) SetPath(path string) {
+	if abs, err := filepath.Abs(path); err == nil {
+		b.path = abs
+		b.name = filepath.Base(abs)
+	} else {
+		b.path = path
+		b.name = filepath.Base(path)
+	}
 }
 
-func (b *Buffer) SetOffset(rowOff, colOff int) {
-	b.colOff = colOff
-	b.rowOff = rowOff
+// MarkScratch changes buffer to scratch buffer
+func (b *Buffer) MarkScratch() {
+	b.path = ""
+	b.name = ""
+	b.EnableFlag(FlagScratch)
 }
 
 // Cursor returns the cursor's x and y pos (as rune index!) accounting for characters visual
@@ -136,37 +140,57 @@ func (b *Buffer) Cursor() (int, int) {
 	return VisualWidth(b.lines[b.cursorY], b.cursorX), b.cursorY
 }
 
-// MarkScratch changes buffer to scratch buffer
-func (b *Buffer) MarkScratch() {
-	b.path = ""
-	b.name = ""
-	b.EnableFlag(FlagScratch)
-	b.EnableFlag(FlagModifiable)
-}
-
 // CursorBytes returns real byte offsets (x, y)
 func (b *Buffer) CursorBytes() (int, int) {
 	return b.cursorX, b.cursorY
 }
 
-// HasFlag checks if flag is enabled
+// Offset returns row and col offsets (TODO): To window
+func (b *Buffer) Offset() (int, int) {
+	return b.rowOff, b.colOff
+}
+
+// SetOffset updates the row and col offsets
+func (b *Buffer) SetOffset(rowOff, colOff int) {
+	b.colOff = colOff
+	b.rowOff = rowOff
+}
+
+func (b *Buffer) Flags() BufferFlag {
+	return b.flags
+}
+
 func (b *Buffer) HasFlag(f BufferFlag) bool {
 	return b.flags&f != 0
 }
 
-// EnableFlag enables a specific flag
 func (b *Buffer) EnableFlag(f BufferFlag) {
 	b.flags |= f
 }
 
-// DisableFlag disables a specific flag
 func (b *Buffer) DisableFlag(f BufferFlag) {
 	b.flags &^= f
 }
 
-// ToggleFlag flips a specific flag between enabled and disabled
 func (b *Buffer) ToggleFlag(f BufferFlag) {
 	b.flags ^= f
+}
+
+func (f BufferFlag) String() string {
+	if f == 0 {
+		return ""
+	}
+
+	var parts []string
+	if f&FlagNew != 0 {
+		parts = append(parts, "new")
+	}
+	if f&FlagReadonly != 0 {
+		parts = append(parts, "readonly")
+	}
+	// No scratch because it's already in the name :D
+
+	return strings.Join(parts, "|")
 }
 
 // Validates path and its contents
@@ -184,6 +208,12 @@ func validatePath(path string) (string, bool, error) {
 	if info.IsDir() {
 		// TODO: Open file explorer
 		return "", false, fmt.Errorf("'%s' is a directory", path)
+	}
+
+	// TODO: too limiting?
+	// https://pkg.go.dev/io/fs#FileMode
+	if !info.Mode().IsRegular() {
+		return "", true, fmt.Errorf("'%s' is not a regular file", path)
 	}
 
 	// TODO: Ignores group perms and might not work for every windows case
