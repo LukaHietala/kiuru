@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -66,8 +67,20 @@ func main() {
 	}()
 
 	e := NewEditor()
-	b := buffer.NewBuffer()
+	flag.Parse()
+	args := flag.Args()
 
+	var path string
+
+	if len(args) > 0 {
+		path = args[0]
+	}
+
+	// TODO: error is the message
+	b, err := buffer.NewBuffer(path, false, false)
+	if err != nil {
+		log.Println(err)
+	}
 	e.screen = s
 
 	// Poll tcell events
@@ -138,7 +151,7 @@ func main() {
 			cxb, _ := b.CursorBytes()
 			statusStyle := tcell.StyleDefault.Foreground(color.Black).Background(color.White)
 
-			left := " Kiuru"
+			left := " " + b.Name()
 
 			// Only col should have differing byte and rune offsets
 			colStr := fmt.Sprintf("%d", cx)
@@ -152,6 +165,7 @@ func main() {
 			middleW := w - len(left) - len(right)
 			fullStr := fmt.Sprintf("%s%-*s%s", left, middleW, "", right)
 			s.PutStrStyled(0, h-2, fullStr, statusStyle)
+			s.PutStrStyled(0, h-1, fmt.Sprintf("%-*s", w, ""), tcell.StyleDefault.Background(color.Black))
 
 			s.ShowCursor(cx-colOff, cy-rowOff)
 			s.Show()
