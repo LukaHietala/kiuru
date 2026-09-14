@@ -7,6 +7,10 @@ import (
 // TODO: Guard everything in the most paranoid way possible
 
 func (b *Buffer) InsertString(s string) {
+	// TODO: when motions block on char, block, linewise
+	if b.HasFlag(FlagReadonly) {
+		return
+	}
 	if len(s) == 0 {
 		return
 	}
@@ -15,6 +19,9 @@ func (b *Buffer) InsertString(s string) {
 }
 
 func (b *Buffer) InsertNewline() {
+	if b.HasFlag(FlagReadonly) {
+		return
+	}
 	line := b.lines[b.cursorY]
 	remainder := slices.Clone(line[b.cursorX:])
 	b.lines[b.cursorY] = slices.Clone(line[:b.cursorX])
@@ -24,6 +31,9 @@ func (b *Buffer) InsertNewline() {
 }
 
 func (b *Buffer) DeleteBack() {
+	if b.HasFlag(FlagReadonly) {
+		return
+	}
 	line := b.lines[b.cursorY]
 	if b.cursorX > 0 {
 		size := PrevRuneSize(line, b.cursorX)
@@ -39,6 +49,9 @@ func (b *Buffer) DeleteBack() {
 }
 
 func (b *Buffer) DeleteForward() {
+	if b.HasFlag(FlagReadonly) {
+		return
+	}
 	line := b.lines[b.cursorY]
 	if b.cursorX < len(line) {
 		size := NextRuneSize(line, b.cursorX)

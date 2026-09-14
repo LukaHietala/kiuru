@@ -7,6 +7,7 @@ import (
 )
 
 // TODO: Render rune error (RuneError = '\uFFFD')
+// TODO: Maybe to utils or something
 
 // PrevRuneSize returns the size of previous rune (left)
 func PrevRuneSize(line []byte, offset int) int {
