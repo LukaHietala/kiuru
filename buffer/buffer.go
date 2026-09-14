@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/zeebo/xxh3"
 )
 
 type BufferFlag uint8
@@ -20,9 +22,10 @@ const (
 
 type Buffer struct {
 	// TODO: Maybe rope later?
-	name  string
-	lines [][]byte
-	path  string
+	name        string
+	lines       [][]byte
+	path        string
+	initialHash uint64
 
 	cursorX        int // byte offset!
 	cursorY        int
@@ -32,9 +35,11 @@ type Buffer struct {
 }
 
 func New() *Buffer {
-	return &Buffer{
+	buf := &Buffer{
 		lines: [][]byte{{}},
 	}
+	buf.initialHash = buf.CurrentHash()
+	return buf
 }
 
 func NewScratch() *Buffer {
@@ -78,6 +83,7 @@ func OpenFile(path string) (*Buffer, error) {
 	// TODO: keep track if dos
 	content = bytes.ReplaceAll(content, []byte("\r\n"), []byte("\n"))
 	buf.lines = bytes.Split(content, []byte("\n"))
+	buf.initialHash = buf.CurrentHash()
 
 	return buf, nil
 }
@@ -111,6 +117,24 @@ func (b *Buffer) LineBytes(y int) []byte {
 // LineCount returns the length of lines slice in a buffer.
 func (b *Buffer) LineCount() int {
 	return len(b.lines)
+}
+
+// CurrentHash returns buffer's xxh3 :delicious: hash
+// TODO: If too large file do something else
+func (b *Buffer) CurrentHash() uint64 {
+	hasher := xxh3.New()
+
+	for _, line := range b.lines {
+		hasher.Write(line)
+		hasher.Write([]byte{'\n'})
+	}
+
+	return hasher.Sum64()
+}
+
+// IsDirty returns true if buffer's initial hash doesn't match current hash
+func (b *Buffer) IsDirty() bool {
+	return b.CurrentHash() != b.initialHash
 }
 
 // SetPath updates the buffer's absolute path and name.

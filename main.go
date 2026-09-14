@@ -125,6 +125,7 @@ func main() {
 				continue
 			}
 
+			// Absolute mess
 			w, h := s.Size()
 			cx, cy := b.Cursor()
 			rowOff, colOff := b.Offset()
@@ -166,9 +167,16 @@ func main() {
 			cxb, _ := b.CursorBytes()
 			statusStyle := tcell.StyleDefault.Foreground(color.Black).Background(color.White)
 
-			left := " " + b.Name()
+			modified := ""
+			if b.IsDirty() {
+				modified = "+"
+			}
+
+			dn := b.Name() + " " + modified
+
+			left := " " + dn
 			if flags := b.Flags().String(); flags != "" {
-				left = fmt.Sprintf(" %s (%s)", b.Name(), flags)
+				left = fmt.Sprintf(" %s (%s)", dn, flags)
 			}
 
 			// Only col should have differing byte and rune offsets
