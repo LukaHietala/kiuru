@@ -152,7 +152,7 @@ func main() {
 
 				numStyle := tcell.StyleDefault.Foreground(color.DimGray)
 				if cy == line {
-					numStyle = numStyle.Foreground(color.LightPink)
+					numStyle = numStyle.Foreground(color.White)
 				}
 				s.PutStrStyled(0, y, fmt.Sprintf("%*d ", gutterW, line+1), numStyle)
 
@@ -178,7 +178,7 @@ func main() {
 			}
 
 			lineStr := fmt.Sprintf("%d", cy+1)
-			right := fmt.Sprintf("L: %s C: %s ", lineStr, colStr)
+			right := fmt.Sprintf("%s,%s ", lineStr, colStr)
 
 			middleW := w - len(left) - len(right)
 			fullStr := fmt.Sprintf("%s%-*s%s", left, middleW, "", right)
